@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Equomix DJ - Hyper-Premium Cyberpunk Studio" />
+  <title>Equomix | Cyber Pro Studio</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;800&family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;400;700;900&display=swap"
+    rel="stylesheet">
+</head>
+
+<body>
+  <!-- Reactive Atmos Layer -->
+  <div class="atmos-layer">
+    <div class="reactive-bg" id="bass-bg"></div>
+    <div class="technical-grid"></div>
+    <div class="ambient-dust"></div>
+  </div>
+
+  <div class="studio-container">
+    <!-- SIDEBAR: TECH RACK -->
+    <aside class="tech-rack">
+      <div class="rack-unit logo-unit">
+        <div class="logo-box">
+          <div class="brand-main">
+            <span class="b-p">Equo</span><span class="b-s">Mix</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rack-units-scroll">
+        <!-- ENGINE MODULE -->
+        <div class="rack-unit">
+          <header class="unit-header">
+            <span class="unit-title">AUDIO ENGINE</span>
+            <span class="unit-id">DSP-01</span>
+          </header>
+          <div class="engine-cluster">
+            <button class="engine-opt active" id="btn-iir">
+              <span class="l1">ANALOG</span>
+              <span class="l2">IIR-SERIES</span>
+            </button>
+            <button class="engine-opt" id="btn-fft">
+              <span class="l1">SPECTRAL</span>
+              <span class="l2">FFT-LINEAR</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- MIXER MODULE -->
+        <div class="rack-unit">
+          <header class="unit-header">
+            <span class="unit-title">MASTER MIXER</span>
+            <span class="unit-id">MOD-02</span>
+          </header>
+          <div class="mixer-interface">
+            <div class="vu-meters-stack">
+              <div class="vu-lane">
+                <div class="vu-rail">
+                  <div class="vu-fill" id="vu-a-fill"></div>
+                </div>
+                <span class="vu-label">DECK A</span>
+              </div>
+              <div class="vu-lane">
+                <div class="vu-rail">
+                  <div class="vu-fill" id="vu-b-fill"></div>
+                </div>
+                <span class="vu-label">DECK B</span>
+              </div>
+            </div>
+            <div class="gain-control">
+              <div class="digital-readout">
+                <label>OUTPUT</label>
+                <div class="num" id="master-gain-val">0.0</div>
+                <div class="dim">dB</div>
+              </div>
+              <div class="fader-track">
+                <input type="range" id="master-gain-slider" min="-24" max="12" step="0.1" value="0" class="pro-fader" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SYSTEM STATS -->
+        <div class="rack-unit system-unit">
+          <div class="stat-row"><span>SAMPLING</span><span>48.0 kHz</span></div>
+          <div class="stat-row"><span>LATENCY</span><span>1.2 ms</span></div>
+          <div class="stat-row"><span>BUFFER</span><span>2048 smp</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN STAGE -->
+    <main class="stage">
+      <!-- TOP DECKS -->
+      <div class="decks-grid">
+        <!-- DECK 1 -->
+        <section class="cyber-deck" id="deck-a">
+          <div class="deck-overlay"></div>
+          <div class="deck-top-bar">
+            <div class="deck-name">DECK 1</div>
+            <button class="vocal-kill-btn" id="vk-a">VOCAL KILL</button>
+            <div class="bpm-module">
+              <input type="text" class="bpm-val" id="bpm-a" value="---" spellcheck="false" />
+              <span class="lab">BPM</span>
+            </div>
+          </div>
+
+          <div class="deck-center">
+            <div class="jog-wrap">
+              <svg class="progress-ring" width="180" height="180">
+                <circle class="ring-bg" cx="90" cy="90" r="85"></circle>
+                <circle class="ring-fill" id="ring-a" cx="90" cy="90" r="85"></circle>
+              </svg>
+              <div class="jog-wheel" id="jog-a">
+                <div class="jog-inner"></div>
+                <div class="jog-marker"></div>
+              </div>
+              <button class="play-trigger" id="play-a" disabled>▶</button>
+            </div>
+
+            <div class="deck-info">
+              <h3 id="name-a">INSERT MEDIA</h3>
+              <div class="deck-status" id="status-a">STANDBY</div>
+              <div class="waveform-box" id="wave-a">
+                <div class="time-readout" id="time-a">00:00:00.000</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="deck-footer">
+            <div class="pitch-fader-box">
+              <div class="p-lcd" id="pitch-val-a">+0.00%</div>
+              <input type="range" class="pitch-slider" id="pitch-a" min="0.9" max="1.1" step="0.001" value="1" />
+              <label>TEMPO</label>
+            </div>
+            <button class="import-btn upload-btn" data-deck="a">LOAD TRACK</button>
+          </div>
+        </section>
+
+        <!-- CROSSFADER HUB -->
+        <div class="mixer-center-hub">
+          <div class="xfader-unit">
+            <div class="xfader-header">
+              <span class="x-label">X-FADER</span>
+              <span class="x-id">FX-LINK</span>
+            </div>
+            <div class="xfader-track-wrap">
+              <div class="xfader-path">
+                <input type="range" id="crossfader" min="0" max="1" step="0.01" value="0.5" class="xfader-handle" />
+              </div>
+            </div>
+            <div class="xfader-footer">
+              <span>DECK A</span>
+              <span>DECK B</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DECK 2 -->
+        <section class="cyber-deck" id="deck-b">
+          <div class="deck-overlay"></div>
+          <div class="deck-top-bar">
+            <div class="deck-name">DECK 2</div>
+            <button class="vocal-kill-btn" id="vk-b">VOCAL KILL</button>
+            <div class="bpm-module">
+              <input type="text" class="bpm-val" id="bpm-b" value="---" spellcheck="false" />
+              <span class="lab">BPM</span>
+            </div>
+          </div>
+
+          <div class="deck-center">
+            <div class="jog-wrap">
+              <svg class="progress-ring" width="180" height="180">
+                <circle class="ring-bg" cx="90" cy="90" r="85"></circle>
+                <circle class="ring-fill" id="ring-b" cx="90" cy="90" r="85"></circle>
+              </svg>
+              <div class="jog-wheel" id="jog-b">
+                <div class="jog-inner"></div>
+                <div class="jog-marker"></div>
+              </div>
+              <button class="play-trigger" id="play-b" disabled>▶</button>
+            </div>
+
+            <div class="deck-info">
+              <h3 id="name-b">INSERT MEDIA</h3>
+              <div class="deck-status" id="status-b">STANDBY</div>
+              <div class="waveform-box" id="wave-b">
+                <div class="time-readout" id="time-b">00:00:00.000</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="deck-footer">
+            <div class="pitch-fader-box">
+              <div class="p-lcd" id="pitch-val-b">+0.00%</div>
+              <input type="range" class="pitch-slider" id="pitch-b" min="0.9" max="1.1" step="0.001" value="1" />
+              <label>TEMPO</label>
+            </div>
+            <button class="import-btn upload-btn" data-deck="b">LOAD TRACK</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- THE MAIN CONSOLE: SPECTROGRAM WATERFALL -->
+      <div class="master-console">
+        <header class="master-header">
+          <div class="h-left">
+            <div class="m-title-wrap">
+              <span class="m-prefix">ULTRA</span>
+              <h2>ANALYZER</h2>
+            </div>
+            <div class="m-status">
+              <span class="m-led"></span>
+              ACTIVE REFERENCE MONITOR
+            </div>
+          </div>
+          <div class="h-right">
+            <div class="h-stat">
+              <span class="h-lab">LATENCY</span>
+              <span class="h-val">1.2ms</span>
+            </div>
+            <button class="flush-btn" id="reset-eq">
+              RESET ALL BANDS
+            </button>
+          </div>
+        </header>
+        <div class="analysis-stage" id="analysis-stage">
+          <div id="eq-bands-overlay" class="eq-bands-overlay"></div>
+          <canvas id="eq-canvas"></canvas>
+          <div class="scanline"></div>
+        </div>
+      </div>
+
+      <input type="file" id="audio-upload" accept="audio/*" hidden />
+    </main>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>
