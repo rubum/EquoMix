@@ -13,14 +13,18 @@ The heart of EquoMix is its versatile Master EQ section, featuring two distinct 
 
 ### 💿 Precision Decks
 - **Dual Deck Architecture**: Independent control over Deck A and Deck B.
-- **Dynamic Waveforms**: High-performance canvas-based waveform rendering with interactive scrubbing.
-- **Hardware-Like Controls**: Integrated jog wheels with rotation tracking and progress rings.
-- **Pitch & BPM**: Real-time pitch shifting and automatic BPM detection for seamless tempo matching.
+- **Dynamic Waveforms**: High-performance canvas-based waveform rendering with interactive scrubbing and loading skeleton pulses.
+- **Hardware-Like Controls**: Integrated jog wheels with rotation tracking and high-precision pitch faders with scroll-wheel support.
+- **Performance Row**: Professional DJ mechanics including tempo **SYNC**, **CUE** (stutter and return), and **CUP** (Cue & Play).
 
-### 🧪 Advanced DSP Tools
+### 🧪 Dual Visualization Engine
+- **Overlapping Spectrums (`ANALYZER`)**: Real-time dual FFT curves (Deck A & B) with additive blending. Visualizes frequency clashes instantly with bright glowing overlap indicators.
+- **Stacked Waveforms (`WAVEFORMS`)**: Parallel, dual-scrolling time-domain waveforms with a central playhead for precise visual phase alignment and beatmatching.
 - **Vocal Kill**: Real-time center-channel subtraction for creating instant acapellas or instrumentals.
-- **Interactive Spectrogram**: A "waterfall" style spectral analyzer with logarithmic frequency mapping.
-- **Constant Power Crossfading**: Smooth, studio-grade blending between decks.
+
+### 🗄️ Volatile Session Crates
+- **Link Session Folder**: Instantly point the workstation to a local directory using the File System Access API. 
+- **Zero-Footprint**: Deep-scans folders for audio files and creates volatile object URLs that are completely destroyed the moment you close the app, leaving no persistent data behind.
 
 ## 🛠️ Technical Stack
 - **Core Engine**: Web Audio API (Advanced DSP Routing).
@@ -52,10 +56,12 @@ The heart of EquoMix is its versatile Master EQ section, featuring two distinct 
    ```
 
 ## 🎮 How to Use
-1. **Load Media**: Click "LOAD TRACK" on either deck to select an audio file from your system.
-2. **Play/Pause**: Use the center play button on the jog wheel.
-3. **Mix**: Use the Crossfader to blend between Deck A and Deck B.
-4. **Sculpt Sound**: Interact with the Master Analyzer or the EQ cards below to adjust frequency bands. 
+1. **Load Media**: Click "LINK FOLDER" in the Crates tab to temporarily link your local tracks, or use "IMPORT FILES" for manual selection.
+2. **Beatmatch**: 
+   - Hit **SYNC** on the incoming deck to instantly match its tempo to the active deck.
+   - Open the **WAVEFORMS** tab to visually align the kick transients on the center playhead.
+3. **Perform**: Use **CUE** for stutter starts and **CUP** for instant drops. Use the Crossfader to blend between Deck A and Deck B.
+4. **Sculpt Sound**: Watch the **ANALYZER** tab for glowing frequency clashes, and use the EQ cards below to cut overlapping bands. 
 5. **Switch Engines**: Toggle between **ANALOG** and **SPECTRAL** in the sidebar to hear the difference in phase response.
 
 ## 📄 License

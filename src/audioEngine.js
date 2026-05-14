@@ -39,7 +39,11 @@ export class AudioEngine {
 
   createDeck() {
     const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+
+    // Create source node immediately before any src is set to prevent capture race conditions
+    const source = this.ctx.createMediaElementSource(audio);
 
     // Vocal Kill Path Components
     const vkSplitter = this.ctx.createChannelSplitter(2);
@@ -61,9 +65,17 @@ export class AudioEngine {
     vkInverter.connect(vkSum); // L + (-R)
     vkSum.connect(vkToggle);
 
+    // Route source through both paths
+    source.connect(normalPath);
+    source.connect(vkSplitter);
+
+    // Both paths merge into deck.gain
+    normalPath.connect(gain);
+    vkToggle.connect(gain);
+
     return {
       audio,
-      source: null,
+      source,
       gain,
       panner,
       vkSplitter,
@@ -107,7 +119,7 @@ export class AudioEngine {
     this.decks.a.gain.connect(this.analyserA);
     this.analyserA.connect(this.xfadeGainA);
 
-    // Deck B -> AnalyserB -> XfadeB -> MasterEQ
+    //https://blog.native-instruments.com/wp-content/uploads/dynamic/2018/02/Traktor-track-library-hero-1400x0-c-default.jpg Deck B -> AnalyserB -> XfadeB -> MasterEQ
     this.decks.b.gain.connect(this.analyserB);
     this.analyserB.connect(this.xfadeGainB);
 
@@ -125,6 +137,7 @@ export class AudioEngine {
 
   async loadTrack(deckId, url) {
     const deck = this.decks[deckId];
+
     deck.audio.src = url;
     deck.audio.load();
 

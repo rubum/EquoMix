@@ -9,6 +9,11 @@ export class UIController {
     if (!this.canvas) return;
     this.ctx = this.canvas.getContext('2d');
 
+    this.stackedCanvas = document.getElementById('stacked-waveforms-canvas');
+    if (this.stackedCanvas) {
+      this.stackedCtx = this.stackedCanvas.getContext('2d');
+    }
+
     // Hardware Palette
     this.colors = {
       cyan: '#3498db', // Pro Cobalt Blue
@@ -43,6 +48,12 @@ export class UIController {
     this.vuA = { fill: document.getElementById('vu-a-fill'), peak: 0 };
     this.vuB = { fill: document.getElementById('vu-b-fill'), peak: 0 };
 
+    // Master Hub
+    this.masterVuL = document.getElementById('master-vu-l');
+    this.masterVuR = document.getElementById('master-vu-r');
+    this.masterGainKnob = document.getElementById('master-gain');
+    this.masterVuPeak = 0;
+
     this.audioUpload = document.getElementById('audio-upload');
     this.pendingDeck = null;
 
@@ -57,10 +68,27 @@ export class UIController {
     this.mouseY = -1;
     this.nodes = [];
 
+    // Library state
+    this.libraryTracks = [];
+
     this.resizeCanvas();
-    window.addEventListener('resize', () => this.resizeCanvas());
+    window.addEventListener('resize', () => {
+      this.resizeCanvas();
+      this.resizeStackedCanvas();
+    });
     this.setupEventListeners();
     this.createBandModules();
+    this.setupTabs();
+    this.setupLibrary();
+    this.setupResizer();
+
+    // Initial Layout Priority
+    const decks = document.querySelector('.decks-grid');
+    if (decks) {
+      decks.style.flex = 'none';
+      decks.style.height = '400px'; // Set a focused default height
+    }
+
     this.startRenderLoop();
   }
 
@@ -74,29 +102,40 @@ export class UIController {
   }
 
   initDeckUI(id) {
-    return {
+    const d = {
       playBtn: document.getElementById(`play-${id}`),
+      cueBtn: document.getElementById(`cue-${id}`),
+      syncBtn: document.getElementById(`sync-${id}`),
+      cupBtn: document.getElementById(`cup-${id}`),
       name: document.getElementById(`name-${id}`),
-      status: document.getElementById(`status-${id}`),
-      bpm: document.getElementById(`bpm-${id}`),
+      bpm: document.getElementById(`bpm-readout-${id}`),
+      key: document.getElementById(`key-readout-${id}`),
       pitch: document.getElementById(`pitch-${id}`),
       pitchVal: document.getElementById(`pitch-val-${id}`),
-      wave: document.getElementById(`wave-${id}`),
-      jog: document.getElementById(`jog-${id}`),
-      ring: document.getElementById(`ring-${id}`),
+      waveMain: document.getElementById(`wave-main-${id}`),
+      waveStrip: document.getElementById(`wave-strip-${id}`),
+      stripProgress: document.getElementById(`strip-progress-${id}`),
       timeReadout: document.getElementById(`time-${id}`),
+      timeRem: document.getElementById(`time-rem-${id}`),
+      jog: document.getElementById(`jog-${id}`),
+      vkBtn: document.getElementById(`vk-${id}`),
       rotation: 0,
-      upload: document.querySelector(`.upload-btn[data-deck="${id}"]`)
+      upload: document.querySelector(`.upload-btn[data-deck="${id}"]`),
+      // Internal state for waveform scrolling
+      mainCanvas: null,
+      stripCanvas: null,
+      waveformBuffer: null,
+      cuePoint: 0
     };
+    return d;
   }
 
   formatTime(seconds) {
-    if (isNaN(seconds)) return '00:00:00.000';
+    if (isNaN(seconds)) return '00:00:00';
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 1000);
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
 
   resizeCanvas() {
@@ -110,6 +149,19 @@ export class UIController {
     this.canvas.width = rect.width;
     this.canvas.height = rect.height;
     this.updateNodePositionsFromEngine();
+  }
+
+  resizeStackedCanvas() {
+    if (!this.stackedCanvas) return;
+    const parent = this.stackedCanvas.parentElement;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    if (rect.width === 0) {
+      setTimeout(() => this.resizeStackedCanvas(), 100);
+      return;
+    }
+    this.stackedCanvas.width = rect.width;
+    this.stackedCanvas.height = rect.height;
   }
 
   updateNodePositionsFromEngine() {
@@ -172,14 +224,7 @@ export class UIController {
 
     // Add mouse wheel support for sliders
     this.overlayContainer.querySelectorAll('.eq-mini-slider').forEach(el => {
-      el.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const direction = e.deltaY < 0 ? 1 : -1;
-        const step = parseFloat(el.step) || (el.classList.contains('freq-slider') ? 10 : 0.5);
-        const currentVal = parseFloat(el.value);
-        el.value = currentVal + (direction * step);
-        el.dispatchEvent(new Event('input'));
-      }, { passive: false });
+      this.attachWheelSupport(el, el.classList.contains('freq-slider') ? 10 : 2);
     });
 
     // Track slider dragging to prevent card movement feedback loop
@@ -240,145 +285,201 @@ export class UIController {
     });
   }
 
+  attachWheelSupport(slider, multiplier = 1) {
+    slider.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const step = parseFloat(slider.step) || 1;
+      const direction = e.deltaY > 0 ? -1 : 1;
+      const delta = step * direction * multiplier;
+
+      const newVal = parseFloat(slider.value) + delta;
+      slider.value = Math.min(parseFloat(slider.max), Math.max(parseFloat(slider.min), newVal));
+
+      // Manually trigger input event
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(new Event('change'));
+    }, { passive: false });
+  }
+
   setupEventListeners() {
     ['a', 'b'].forEach(id => {
       const d = this.decks[id];
+      const deck = this.engine.decks[id];
+
       d.playBtn.addEventListener('click', () => {
-        const audio = this.engine.decks[id].audio;
-        if (audio.paused) {
-          audio.play();
+        if (deck.audio.paused) {
+          if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+          deck.audio.play();
+          d.playBtn.classList.add('active');
           d.playBtn.textContent = '||';
-          d.playBtn.style.background = this.colors.cyan;
-          d.playBtn.style.color = '#000';
         } else {
-          audio.pause();
+          deck.audio.pause();
+          d.playBtn.classList.remove('active');
           d.playBtn.textContent = '▶';
-          d.playBtn.style.background = '#fff';
-          d.playBtn.style.color = '#000';
         }
       });
-      d.pitch.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        this.engine.setPitch(id, val);
-        const percent = ((val - 1) * 100).toFixed(2);
-        d.pitchVal.textContent = (val >= 1 ? '+' : '') + percent + '%';
 
-        // Update effective BPM
+      // CUE Logic
+      d.cueBtn.addEventListener('mousedown', () => {
+        if (deck.audio.paused) {
+          if (Math.abs(deck.audio.currentTime - d.cuePoint) < 0.1) {
+            // Stutter play
+            if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+            deck.audio.play();
+            d.cueBtn.classList.add('active');
+          } else {
+            // Set new cue point
+            d.cuePoint = deck.audio.currentTime;
+            d.cueBtn.classList.add('active');
+            setTimeout(() => d.cueBtn.classList.remove('active'), 100);
+          }
+        } else {
+          // Playing -> Pause and jump to cue
+          deck.audio.pause();
+          deck.audio.currentTime = d.cuePoint;
+          d.playBtn.classList.remove('active');
+          d.playBtn.textContent = '▶';
+          d.cueBtn.classList.add('active');
+          setTimeout(() => d.cueBtn.classList.remove('active'), 100);
+        }
+      });
+
+      d.cueBtn.addEventListener('mouseup', () => {
+        if (!deck.audio.paused && d.cueBtn.classList.contains('active')) {
+          // End of stutter play
+          deck.audio.pause();
+          deck.audio.currentTime = d.cuePoint;
+          d.cueBtn.classList.remove('active');
+        }
+      });
+
+      // CUP Logic
+      d.cupBtn.addEventListener('click', () => {
+        deck.audio.currentTime = d.cuePoint;
+        if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+        deck.audio.play();
+        d.playBtn.classList.add('active');
+        d.playBtn.textContent = '||';
+
+        d.cupBtn.classList.add('active');
+        setTimeout(() => d.cupBtn.classList.remove('active'), 100);
+      });
+
+      // SYNC Logic
+      d.syncBtn.addEventListener('click', () => {
+        const otherId = id === 'a' ? 'b' : 'a';
+        const otherDeck = this.decks[otherId];
+
+        if (!d.baseBPM || !otherDeck.baseBPM || d.baseBPM === '---' || otherDeck.baseBPM === '---') return;
+
+        const otherPitch = this.engine.decks[otherId].pitch;
+        const targetBPM = otherDeck.baseBPM * otherPitch;
+        const requiredPitch = targetBPM / d.baseBPM;
+        const clampedPitch = Math.min(1.1, Math.max(0.9, requiredPitch));
+
+        d.pitch.value = clampedPitch;
+        this.engine.setPitch(id, clampedPitch);
         this.updateEffectiveBPM(id);
+        d.pitchVal.textContent = (clampedPitch >= 1 ? '+' : '') + `${((clampedPitch - 1) * 100).toFixed(1)}%`;
+
+        d.syncBtn.classList.add('active');
+        setTimeout(() => d.syncBtn.classList.remove('active'), 200);
       });
 
-      d.bpm.addEventListener('change', (e) => {
-        const val = parseFloat(e.target.value);
-        if (!isNaN(val)) {
-          this.decks[id].baseBPM = val;
-          this.updateEffectiveBPM(id);
-        }
+      d.pitch.addEventListener('input', (e) => {
+        this.engine.setPitch(id, parseFloat(e.target.value));
+        this.updateEffectiveBPM(id);
+        d.pitchVal.textContent = `${((parseFloat(e.target.value) - 1) * 100).toFixed(1)}%`;
       });
-
-      // Mouse Wheel Support for BPM
-      d.bpm.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const direction = e.deltaY < 0 ? 1 : -1;
-        const step = e.shiftKey ? 1.0 : 0.1;
-        if (this.decks[id].baseBPM) {
-          this.decks[id].baseBPM += direction * step;
-          this.updateEffectiveBPM(id);
-        }
-      }, { passive: false });
+      this.attachWheelSupport(d.pitch, 1);
 
       d.upload.addEventListener('click', () => {
         this.pendingDeck = id;
         this.audioUpload.click();
       });
 
-      const vkBtn = document.getElementById(`vk-${id}`);
-      if (vkBtn) {
-        vkBtn.addEventListener('click', () => {
-          const isActive = vkBtn.classList.toggle('active');
+      if (d.vkBtn) {
+        d.vkBtn.addEventListener('click', () => {
+          const isActive = d.vkBtn.classList.toggle('active');
           this.engine.setVocalKill(id, isActive);
         });
       }
 
-      // Waveform Seeking (Drag to scrub)
+      // Strip Seeking
       const handleSeek = (e) => {
-        const rect = d.wave.getBoundingClientRect();
+        const rect = d.waveStrip.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const x = clientX - rect.left;
         const percent = Math.max(0, Math.min(1, x / rect.width));
-        const audio = this.engine.decks[id].audio;
-        if (audio.duration) {
-          audio.currentTime = percent * audio.duration;
-          // Real-time UI update during scrub
-          if (d.progressEl) d.progressEl.style.width = `${percent * 100}%`;
-          if (d.timeReadout) {
-            const current = this.formatTime(audio.currentTime);
-            const total = this.formatTime(audio.duration);
-            d.timeReadout.textContent = `${current} / ${total}`;
-          }
+        if (deck.audio.duration) {
+          deck.audio.currentTime = percent * deck.audio.duration;
         }
       };
 
-      d.wave.addEventListener('mousedown', (e) => {
-        d.isDraggingWave = true;
+      d.waveStrip.addEventListener('mousedown', (e) => {
+        d.isDraggingStrip = true;
         handleSeek(e);
       });
 
       window.addEventListener('mousemove', (e) => {
-        if (d.isDraggingWave) handleSeek(e);
+        if (d.isDraggingStrip) handleSeek(e);
       });
 
       window.addEventListener('mouseup', () => {
-        d.isDraggingWave = false;
-      });
-
-      d.wave.addEventListener('touchstart', (e) => {
-        d.isDraggingWave = true;
-        handleSeek(e);
-      }, { passive: true });
-
-      window.addEventListener('touchmove', (e) => {
-        if (d.isDraggingWave) handleSeek(e);
-      }, { passive: true });
-
-      window.addEventListener('touchend', () => {
-        d.isDraggingWave = false;
+        d.isDraggingStrip = false;
       });
     });
 
-    this.crossfader.addEventListener('input', (e) => {
-      this.engine.setCrossfade(parseFloat(e.target.value));
-    });
+    // Master Gain
+    this.masterGainSlider = document.getElementById('master-gain-slider');
+    if (this.masterGainSlider) {
+      this.attachWheelSupport(this.masterGainSlider, 5);
+      this.masterGainSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this.engine.setMasterGain(val);
+        if (this.masterGainVal) this.masterGainVal.textContent = val.toFixed(1);
+      });
+    }
 
-    this.masterGainSlider.addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
-      this.engine.setMasterGain(val);
-      this.masterGainVal.textContent = val.toFixed(1);
-    });
+    // Crossfader
+    this.crossfader = document.getElementById('crossfader');
+    if (this.crossfader) {
+      this.attachWheelSupport(this.crossfader, 2);
+      this.crossfader.addEventListener('input', (e) => {
+        this.engine.setCrossfade(parseFloat(e.target.value));
+      });
+    }
 
-    this.masterGainSlider.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const direction = e.deltaY < 0 ? 0.1 : -0.1;
-      const current = parseFloat(this.masterGainSlider.value);
-      this.masterGainSlider.value = (current + direction).toFixed(1);
-      this.masterGainSlider.dispatchEvent(new Event('input'));
-    }, { passive: false });
+    // EQ Modes
+    const modeAnalog = document.getElementById('mode-analog');
+    const modeSpectral = document.getElementById('mode-spectral');
+    if (modeAnalog && modeSpectral) {
+      modeAnalog.addEventListener('click', () => {
+        modeAnalog.classList.add('active');
+        modeSpectral.classList.remove('active');
+        this.engine.setMode('iir');
+      });
+      modeSpectral.addEventListener('click', () => {
+        modeSpectral.classList.add('active');
+        modeAnalog.classList.remove('active');
+        this.engine.setMode('fft');
+      });
+    }
+
+    // Utility Toggles
+    ['btn-snap', 'btn-quant'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) {
+        btn.addEventListener('click', () => {
+          btn.classList.toggle('active');
+        });
+      }
+    });
 
     this.resetBtn.addEventListener('click', () => {
       this.engine.resetEQ();
       this.updateNodePositionsFromEngine();
       this.updateBandModules();
-    });
-
-    this.btnIir.addEventListener('click', () => {
-      this.engine.setMode('iir');
-      this.btnIir.classList.add('active');
-      this.btnFft.classList.remove('active');
-    });
-
-    this.btnFft.addEventListener('click', () => {
-      this.engine.setMode('fft');
-      this.btnFft.classList.add('active');
-      this.btnIir.classList.remove('active');
     });
 
     this.audioUpload.addEventListener('change', (e) => {
@@ -387,19 +488,18 @@ export class UIController {
         const id = this.pendingDeck;
         const d = this.decks[id];
         d.name.textContent = file.name.toUpperCase();
-        d.status.textContent = 'DECODING';
-        
-        // Clear existing waveform immediately
-        const timeEl = d.wave.querySelector('.time-readout');
-        d.wave.innerHTML = '';
-        if (timeEl) d.wave.appendChild(timeEl);
 
-        d.wave.classList.add('loading');
-        d.wave.classList.remove('loaded');
-        const url = URL.createObjectURL(file);
-        this.engine.loadTrack(id, url);
+        // Start Loading Animation
+        const waveforms = d.waveMain.parentElement;
+        if (waveforms) waveforms.classList.add('loading');
+
+        // Pass to Engine
+        this.engine.loadTrack(id, URL.createObjectURL(file));
         d.playBtn.disabled = false;
-        if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+
+        if (this.engine.ctx.state === 'suspended') {
+          this.engine.ctx.resume();
+        }
       }
     });
 
@@ -408,18 +508,13 @@ export class UIController {
       const d = this.decks[deckId];
       const deck = this.engine.decks[deckId];
       d.baseBPM = bpm;
-      d.bpm.value = bpm;
-      d.status.textContent = 'SIGNAL_LOCKED';
-      d.wave.classList.remove('loading');
-      d.wave.classList.add('loaded');
-      
-      if (d.timeReadout) {
-        const current = this.formatTime(deck.audio.currentTime);
-        const total = this.formatTime(deck.audio.duration || buffer.duration);
-        d.timeReadout.textContent = `${current} / ${total}`;
-      }
+      d.bpm.textContent = `${bpm} BPM`;
 
       this.drawCyberWaveform(deckId, buffer);
+
+      // Stop Loading Animation
+      const waveforms = d.waveMain.parentElement;
+      if (waveforms) waveforms.classList.remove('loading');
     });
 
     this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
@@ -428,51 +523,345 @@ export class UIController {
     window.addEventListener('mouseup', this.handleMouseUp.bind(this));
   }
 
-  drawCyberWaveform(id, buffer) {
-    const container = this.decks[id].wave;
-    const timeEl = container.querySelector('.time-readout');
-    container.innerHTML = '';
+  setupResizer() {
+    const resizer = document.getElementById('stage-resizer');
+    const decks = document.querySelector('.decks-grid');
+    const console = document.querySelector('.master-console');
+    const stage = document.querySelector('.stage');
 
-    // Progress Overlay
-    const progress = document.createElement('div');
-    progress.className = 'wave-progress';
-    progress.id = `wave-progress-${id}`;
-    container.appendChild(progress);
-    this.decks[id].progressEl = progress;
+    if (!resizer || !decks || !console || !stage) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = container.clientWidth * 2;
-    canvas.height = container.clientHeight * 2;
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    container.appendChild(canvas);
+    let isResizing = false;
 
-    const ctx = canvas.getContext('2d');
-    const data = buffer.getChannelData(0);
-    const step = Math.ceil(data.length / (canvas.width / 2));
-    const amp = canvas.height / 2;
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      document.body.style.cursor = 'ns-resize';
+      e.preventDefault();
+    });
 
-    // Performance Optimization: Sub-sample the peak detection for large buffers
-    const subStep = Math.max(1, Math.floor(step / 60)); // Analyze ~60 points per pixel segment
+    window.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
 
-    ctx.fillStyle = id === 'a' ? this.colors.cyan : this.colors.green;
-    for (let i = 0; i < canvas.width; i += 3) {
-      let max = 0;
-      const startIdx = Math.floor((i / 3) * step);
-      for (let j = 0; j < step; j += subStep) {
-        const idx = startIdx + j;
-        if (idx >= data.length) break;
-        const datum = Math.abs(data[idx]);
-        if (datum > max) max = datum;
+      const stageRect = stage.getBoundingClientRect();
+      const relativeY = e.clientY - stageRect.top;
+
+      // Constraints: Min height for decks and console
+      const minDecks = 220;
+      const minConsole = 250;
+
+      let decksHeight = relativeY;
+      if (decksHeight < minDecks) decksHeight = minDecks;
+      if (stageRect.height - decksHeight < minConsole) decksHeight = stageRect.height - minConsole;
+
+      decks.style.flex = 'none';
+      decks.style.height = `${decksHeight}px`;
+
+      // Ensure canvas resize triggers
+      this.resizeCanvas();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = 'default';
+        this.resizeCanvas();
       }
-      const h = max * amp * 2.2; // Slightly boosted for better visual presence
-      ctx.globalAlpha = 0.8;
-      ctx.fillRect(i, (canvas.height - h) / 2, 2, h);
-      ctx.globalAlpha = 0.2;
-      ctx.fillRect(i, 0, 1, canvas.height); // Background grid lines
+    });
+  }
+
+  setupTabs() {
+    const tabs = document.querySelectorAll('.tab-btn');
+    const panes = document.querySelectorAll('.tab-pane');
+    this.activeMasterTab = 'pane-analyzer';
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        panes.forEach(p => p.classList.remove('active'));
+
+        tab.classList.add('active');
+        const targetId = tab.getAttribute('data-target');
+        const pane = document.getElementById(targetId);
+        if (pane) pane.classList.add('active');
+        
+        this.activeMasterTab = targetId;
+
+        // Toggle visibility of Reset All Bands button
+        const resetBtn = document.getElementById('reset-eq');
+        if (resetBtn) {
+          resetBtn.style.display = targetId === 'pane-analyzer' ? 'block' : 'none';
+        }
+        
+        // Resize canvases when switching tabs
+        if (targetId === 'pane-analyzer') this.resizeCanvas();
+        if (targetId === 'pane-waveforms') this.resizeStackedCanvas();
+      });
+    });
+  }
+
+  setupLibrary() {
+    const libLinkBtn = document.getElementById('lib-link-btn');
+    const libAddBtn = document.getElementById('lib-add-btn');
+    const libUpload = document.getElementById('lib-upload');
+    const libFolderUpload = document.getElementById('lib-folder-upload');
+    const libList = document.getElementById('lib-list');
+    const libSearch = document.getElementById('lib-search');
+
+    if (!libAddBtn || !libUpload || !libList || !libFolderUpload) return;
+
+    libAddBtn.addEventListener('click', () => libUpload.click());
+    libLinkBtn.addEventListener('click', () => libFolderUpload.click());
+
+    libFolderUpload.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+
+      for (const file of files) {
+        // Only process audio files from the selected directory
+        if (file.type.startsWith('audio/')) {
+          this.addFileToLibrary(file);
+        }
+      }
+
+      this.renderLibrary();
+      libFolderUpload.value = '';
+    });
+
+    libUpload.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+
+      for (const file of files) {
+        this.addFileToLibrary(file);
+      }
+
+      this.renderLibrary();
+      libUpload.value = '';
+    });
+
+    libSearch.addEventListener('input', (e) => {
+      this.renderLibrary(e.target.value);
+    });
+  }
+
+  addFileToLibrary(file) {
+    // Create a local object URL
+    const url = URL.createObjectURL(file);
+
+    // Parse Artist/Title from filename
+    const rawName = file.name.replace(/\.[^/.]+$/, ""); // strip extension
+    let artist = "UNKNOWN ARTIST";
+    let title = rawName;
+
+    if (rawName.includes(' - ')) {
+      const parts = rawName.split(' - ');
+      artist = parts[0].trim();
+      title = parts[1].trim();
     }
 
-    if (timeEl) container.appendChild(timeEl);
+    // Mock Key (Camelot)
+    const keys = ['1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A', '1B', '2B', '3B', '4B', '5B', '6B', '7B', '8B', '9B', '10B', '11B', '12B'];
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+
+    // Mock Rating (dots)
+    const rating = Math.floor(Math.random() * 5) + 1;
+
+    // Mock Art Color
+    const hue = Math.floor(Math.random() * 360);
+    const artColor = `hsl(${hue}, 40%, 30%)`;
+
+    // Push to library state
+    this.libraryTracks.push({
+      id: Date.now() + Math.random().toString(36).substr(2, 9),
+      file,
+      name: file.name,
+      artist,
+      title,
+      url,
+      bpm: '---',
+      key: randomKey,
+      rating,
+      artColor
+    });
+  }
+
+  renderLibrary(filterQuery = '') {
+    const libList = document.getElementById('lib-list');
+    if (!libList) return;
+
+    if (this.libraryTracks.length === 0) {
+      libList.innerHTML = '<div class="lib-empty">COLLECTION IS EMPTY. IMPORT MEDIA TO BEGIN.</div>';
+      return;
+    }
+
+    const q = filterQuery.toLowerCase();
+    const filtered = this.libraryTracks.filter(t =>
+      t.name.toLowerCase().includes(q) ||
+      t.artist.toLowerCase().includes(q)
+    );
+
+    if (filtered.length === 0) {
+      libList.innerHTML = '<div class="lib-empty">NO TRACKS MATCH YOUR SEARCH.</div>';
+      return;
+    }
+
+    libList.innerHTML = filtered.map((track, idx) => `
+      <div class="lib-track-row" data-id="${track.id}">
+        <div class="l-col l-index">${idx + 1}</div>
+        <div class="l-col l-cover">
+          <div class="track-audio-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 12px; height: 12px;">
+              <path d="M12 2v20M2 10v4M22 10v4M7 7v10M17 7v10" />
+            </svg>
+          </div>
+        </div>
+        <div class="l-col l-title" title="${track.title}">${track.title}</div>
+        <div class="l-col l-artist" title="${track.artist}">${track.artist}</div>
+        <div class="l-col l-bpm">${track.bpm}</div>
+        <div class="l-col l-key">${track.key}</div>
+        <div class="l-col l-rating">
+          <span class="rating-dots">${'●'.repeat(track.rating)}${'○'.repeat(5 - track.rating)}</span>
+        </div>
+        <div class="l-col l-act">
+          <button class="load-btn deck-a" data-id="${track.id}" data-deck="a">LOAD A</button>
+          <button class="load-btn deck-b" data-id="${track.id}" data-deck="b">LOAD B</button>
+        </div>
+      </div>
+    `).join('');
+
+    // Attach load events
+    libList.querySelectorAll('.load-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const trackId = e.target.getAttribute('data-id');
+        const deckId = e.target.getAttribute('data-deck');
+        this.loadLibraryTrackToDeck(trackId, deckId);
+      });
+    });
+
+    // Row selection aesthetic
+    libList.querySelectorAll('.lib-track-row').forEach(row => {
+      row.addEventListener('click', () => {
+        libList.querySelectorAll('.lib-track-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+      });
+    });
+  }
+
+  loadLibraryTrackToDeck(trackId, deckId) {
+    const track = this.libraryTracks.find(t => t.id === trackId);
+    if (!track) return;
+
+    const d = this.decks[deckId];
+
+    // UI Updates
+    d.name.textContent = track.name.toUpperCase();
+    if (d.bpm) d.bpm.textContent = `${track.bpm} BPM`;
+    if (d.key) d.key.textContent = track.key;
+
+    // Start Loading Animation
+    const waveforms = d.waveMain.parentElement;
+    if (waveforms) waveforms.classList.add('loading');
+
+    // Clear existing waveform containers
+    if (d.waveMain) d.waveMain.innerHTML = '<div class="playhead"></div>';
+    if (d.waveStrip) d.waveStrip.innerHTML = '';
+
+    // Pass to Engine
+    this.engine.loadTrack(deckId, track.url);
+    d.playBtn.disabled = false;
+
+    if (this.engine.ctx.state === 'suspended') {
+      this.engine.ctx.resume();
+    }
+  }
+
+  drawCyberWaveform(id, buffer) {
+    const d = this.decks[id];
+    d.waveformBuffer = buffer.getChannelData(0);
+
+    // 1. Setup Overview Strip
+    d.waveStrip.innerHTML = '<div class="strip-progress" id="strip-progress-' + id + '"></div>';
+    d.stripProgress = d.waveStrip.querySelector('.strip-progress');
+
+    const sCanvas = document.createElement('canvas');
+    sCanvas.width = d.waveStrip.clientWidth * 2;
+    sCanvas.height = d.waveStrip.clientHeight * 2;
+    sCanvas.style.width = '100%';
+    sCanvas.style.height = '100%';
+    d.waveStrip.appendChild(sCanvas);
+
+    const sCtx = sCanvas.getContext('2d');
+    const data = d.waveformBuffer;
+    const step = Math.ceil(data.length / sCanvas.width);
+    const amp = sCanvas.height / 2;
+
+    sCtx.fillStyle = id === 'a' ? '#3498db' : '#e67e22';
+    for (let i = 0; i < sCanvas.width; i++) {
+      let max = 0;
+      for (let j = 0; j < step; j += 10) {
+        const datum = Math.abs(data[i * step + j]);
+        if (datum > max) max = datum;
+      }
+      sCtx.fillRect(i, amp - (max * amp), 1, max * amp * 2);
+    }
+
+    // 2. Setup Main Scrolling Waveform
+    d.waveMain.innerHTML = '<div class="playhead"></div>';
+    const mCanvas = document.createElement('canvas');
+    mCanvas.width = d.waveMain.clientWidth * 2;
+    mCanvas.height = d.waveMain.clientHeight * 2;
+    mCanvas.style.width = '100%';
+    mCanvas.style.height = '100%';
+    d.waveMain.appendChild(mCanvas);
+    d.mainCanvas = mCanvas;
+  }
+
+  drawWaveformSlice(id) {
+    const d = this.decks[id];
+    if (!d.waveformBuffer || !d.mainCanvas) return;
+
+    const deck = this.engine.decks[id];
+    const ctx = d.mainCanvas.getContext('2d');
+    const width = d.mainCanvas.width;
+    const height = d.mainCanvas.height;
+    const buffer = d.waveformBuffer;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Zoom level (samples visible) - 40,000 is a good "pro" look
+    const zoom = 40000;
+    const currentSample = deck.audio.currentTime * 44100;
+    const startSample = currentSample - zoom / 2;
+
+    const amp = height / 2;
+    const step = zoom / width;
+
+    for (let i = 0; i < width; i++) {
+      const idx = Math.floor(startSample + i * step);
+      if (idx >= 0 && idx < buffer.length) {
+        const val = Math.abs(buffer[idx]);
+        const h = val * amp * 2.5; // Boosted for impact
+
+        // Spectral Color Logic
+        ctx.fillStyle = this.getSpectralColor(val, id);
+        ctx.fillRect(i, amp - h / 2, 1, h);
+      }
+    }
+  }
+
+  getSpectralColor(val, deckId) {
+    // Premium Spectral Mapping
+    // Low Amp: Deep Blue/Orange -> High Amp: Bright Cyan/Amber -> Peak: White
+    if (deckId === 'a') {
+      if (val > 0.8) return '#ffffff';
+      if (val > 0.4) return '#00d2ff';
+      return '#004a8f';
+    } else {
+      if (val > 0.8) return '#ffffff';
+      if (val > 0.4) return '#ff9500';
+      return '#8f4a00';
+    }
   }
 
   handleMouseDown(e) {
@@ -593,11 +982,73 @@ export class UIController {
 
   startRenderLoop() {
     const render = () => {
-      this.draw();
+      if (this.activeMasterTab === 'pane-analyzer') {
+        this.draw();
+      } else if (this.activeMasterTab === 'pane-waveforms') {
+        this.drawStackedWaveforms();
+      }
       this.updateHardwareState();
       requestAnimationFrame(render);
     };
     requestAnimationFrame(render);
+  }
+
+  drawStackedWaveforms() {
+    if (!this.stackedCanvas || !this.stackedCtx) return;
+    const ctx = this.stackedCtx;
+    const width = this.stackedCanvas.width;
+    const height = this.stackedCanvas.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const halfHeight = height / 2;
+
+    // Helper to draw a single scrolling deck waveform
+    const drawDeck = (id, yOffset, color) => {
+      const d = this.decks[id];
+      const deck = this.engine.decks[id];
+      if (!d.waveformBuffer) return;
+
+      const buffer = d.waveformBuffer;
+      const duration = deck.audio.duration || 1;
+      const currentTime = deck.audio.currentTime || 0;
+
+      // Window size: how many seconds of audio fit on screen
+      const windowSec = 4; // 2 seconds before center playhead, 2 seconds after
+      const samplesPerSec = buffer.length / duration;
+      const samplesInWindow = samplesPerSec * windowSec;
+
+      const playheadSample = Math.floor((currentTime / duration) * buffer.length);
+      const startSample = Math.floor(playheadSample - (samplesInWindow / 2));
+      const step = Math.max(1, Math.floor(samplesInWindow / width));
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+
+      const amp = halfHeight / 2;
+      const centerY = yOffset + amp;
+
+      for (let i = 0; i < width; i++) {
+        const sampleIdx = startSample + i * step;
+        if (sampleIdx >= 0 && sampleIdx < buffer.length) {
+          // Find peak in chunk
+          let max = 0;
+          for (let j = 0; j < step; j += 10) {
+            const idx = sampleIdx + j;
+            if (idx < buffer.length) {
+              const val = Math.abs(buffer[idx]);
+              if (val > max) max = val;
+            }
+          }
+          ctx.moveTo(i, centerY - (max * amp));
+          ctx.lineTo(i, centerY + (max * amp));
+        }
+      }
+      ctx.stroke();
+    };
+
+    drawDeck('a', 0, '#3498db'); // Top half, Blue
+    drawDeck('b', halfHeight, '#00df9a'); // Bottom half, Mint
   }
 
   updateHardwareState() {
@@ -618,29 +1069,42 @@ export class UIController {
       if (level > vu.peak) vu.peak = level; else vu.peak *= 0.94;
       if (vu.fill) vu.fill.style.width = `${vu.peak}%`;
 
-      // Jog & Progress
-      if (!deck.audio.paused) {
-        d.rotation += 3 * deck.pitch;
-        d.jog.style.transform = `rotate(${d.rotation}deg)`;
+      // Waveform Rendering & Progress
+      if (!deck.audio.paused || d.isDraggingStrip) {
+        if (!deck.audio.paused) {
+          d.rotation += 3 * deck.pitch;
+          d.jog.style.transform = `rotate(${d.rotation}deg)`;
+        }
+
+        // Draw the scrolling waveform slice
+        this.drawWaveformSlice(id);
 
         const progress = (deck.audio.currentTime / deck.audio.duration) || 0;
-        const dashoffset = 534 * (1 - progress);
-        d.ring.style.strokeDashoffset = dashoffset;
-
-        if (d.progressEl) {
-          d.progressEl.style.width = `${progress * 100}%`;
+        if (d.stripProgress) {
+          d.stripProgress.style.width = `${progress * 100}%`;
         }
       }
 
       if (d.timeReadout && deck.audio.duration) {
-        const current = this.formatTime(deck.audio.currentTime);
-        const total = this.formatTime(deck.audio.duration);
-        d.timeReadout.textContent = `${current} / ${total}`;
+        const current = deck.audio.currentTime;
+        const total = deck.audio.duration;
+        const remaining = total - current;
+
+        d.timeReadout.textContent = this.formatTimeShort(current);
+        if (d.timeRem) {
+          d.timeRem.textContent = "-" + this.formatTimeShort(remaining);
+        }
       }
     });
 
     // Reactive Bass
     document.body.style.setProperty('--bass-glow', (totalAmp / 200).toString());
+
+    // Master VU Metering
+    const masterLevel = Math.min(100, totalAmp / 2);
+    if (masterLevel > this.masterVuPeak) this.masterVuPeak = masterLevel; else this.masterVuPeak *= 0.94;
+    if (this.masterVuL) this.masterVuL.style.height = `${this.masterVuPeak}%`;
+    if (this.masterVuR) this.masterVuR.style.height = `${this.masterVuPeak * 0.98}%`; // Slight offset for realism
 
     // Spawn particles on bass hit
     if (totalAmp > 120 && Math.random() > 0.8) {
@@ -655,6 +1119,14 @@ export class UIController {
         });
       }
     }
+  }
+
+  formatTimeShort(seconds) {
+    if (isNaN(seconds) || seconds < 0) return '00:00:00';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
 
   draw() {
@@ -762,12 +1234,70 @@ export class UIController {
       this.ctx.fillRect(p.x, p.y, 2, 2);
     });
     this.ctx.globalAlpha = 1.0;
+    const dataA = new Float32Array(this.engine.analyserA.frequencyBinCount);
+    this.engine.analyserA.getFloatFrequencyData(dataA);
 
-    const masterData = new Float32Array(this.engine.masterAnalyser.frequencyBinCount);
-    this.engine.masterAnalyser.getFloatFrequencyData(masterData);
+    const dataB = new Float32Array(this.engine.analyserB.frequencyBinCount);
+    this.engine.analyserB.getFloatFrequencyData(dataB);
 
-    // Function to build the waterfall path
-    const buildWaterfallPath = () => {
+    this.ctx.globalCompositeOperation = 'lighter';
+
+    const drawCurve = (data, color, fillOpacity) => {
+      this.ctx.beginPath();
+      let first = true;
+      const nyquist = this.engine.ctx.sampleRate / 2;
+      let lastX = 0;
+
+      for (let i = 0; i < data.length; i++) {
+        const freq = i * nyquist / data.length;
+        if (freq < 20 || freq > 20000) continue;
+
+        const x = this.freqToX(freq);
+        const normalized = Math.max(0, (data[i] + 100) / 100);
+        const y = height - (normalized * height * 0.8);
+
+        if (first) {
+          this.ctx.moveTo(x, y);
+          first = false;
+        } else {
+          this.ctx.lineTo(x, y);
+        }
+        lastX = x;
+      }
+      
+      this.ctx.strokeStyle = color;
+      this.ctx.lineWidth = 2;
+      this.ctx.shadowBlur = 15;
+      this.ctx.shadowColor = color;
+      this.ctx.stroke();
+      this.ctx.shadowBlur = 0;
+
+      const baseGrad = this.ctx.createLinearGradient(0, height, 0, 0);
+      baseGrad.addColorStop(0, `rgba(${this.hexToRgb(color)}, 0)`);
+      baseGrad.addColorStop(1, `rgba(${this.hexToRgb(color)}, ${fillOpacity})`);
+      this.ctx.fillStyle = baseGrad;
+      this.ctx.lineTo(lastX, height);
+      this.ctx.lineTo(this.freqToX(20), height);
+      this.ctx.closePath();
+      this.ctx.fill();
+    };
+
+    // Draw Deck A (Blue) and Deck B (Mint/Orange)
+    drawCurve(dataA, '#3498db', 0.25);
+    drawCurve(dataB, '#00df9a', 0.25);
+    
+    this.ctx.globalCompositeOperation = 'source-over';
+
+    // 2. Draw Highlighted Section using Clip
+    if (highlightColor) {
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.rect(highlightStartX, 0, highlightEndX - highlightStartX, height);
+      this.ctx.clip();
+
+      const masterData = new Float32Array(this.engine.masterAnalyser.frequencyBinCount);
+      this.engine.masterAnalyser.getFloatFrequencyData(masterData);
+
       this.ctx.beginPath();
       let first = true;
       const nyquist = this.engine.ctx.sampleRate / 2;
@@ -789,34 +1319,7 @@ export class UIController {
         }
         lastX = x;
       }
-      return lastX;
-    };
 
-    // 1. Draw Base Spectrogram (Cyan)
-    let lastX = buildWaterfallPath();
-    this.ctx.strokeStyle = this.colors.cyan;
-    this.ctx.lineWidth = 2;
-    this.ctx.shadowBlur = 15;
-    this.ctx.shadowColor = this.colors.cyan;
-    this.ctx.stroke();
-    this.ctx.shadowBlur = 0;
-
-    const baseGrad = this.ctx.createLinearGradient(0, height, 0, 0);
-    baseGrad.addColorStop(0, `rgba(${this.hexToRgb(this.colors.cyan)}, 0)`);
-    baseGrad.addColorStop(1, `rgba(${this.hexToRgb(this.colors.cyan)}, 0.25)`);
-    this.ctx.fillStyle = baseGrad;
-    this.ctx.lineTo(lastX, height);
-    this.ctx.lineTo(0, height);
-    this.ctx.fill();
-
-    // 2. Draw Highlighted Section using Clip
-    if (highlightColor) {
-      this.ctx.save();
-      this.ctx.beginPath();
-      this.ctx.rect(highlightStartX, 0, highlightEndX - highlightStartX, height);
-      this.ctx.clip();
-
-      lastX = buildWaterfallPath();
       this.ctx.strokeStyle = highlightColor;
       this.ctx.lineWidth = 2;
       this.ctx.shadowBlur = 15;
@@ -829,7 +1332,7 @@ export class UIController {
       hiGrad.addColorStop(1, `rgba(${this.hexToRgb(highlightColor)}, 0.25)`);
       this.ctx.fillStyle = hiGrad;
       this.ctx.lineTo(lastX, height);
-      this.ctx.lineTo(0, height);
+      this.ctx.lineTo(this.freqToX(20), height);
       this.ctx.fill();
 
       this.ctx.restore();
@@ -928,6 +1431,22 @@ export class UIController {
   drawNodes() {
     this.nodes.forEach((node, i) => {
       const active = i === this.activeNodeIndex || (!this.isDragging && i === this.hoverNodeIndex);
+      const { width, height } = this.canvas;
+
+      // Crosshair Lines
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.setLineDash([2, 4]);
+      this.ctx.strokeStyle = `rgba(${this.hexToRgb(node.color)}, ${active ? 0.4 : 0.15})`;
+      this.ctx.lineWidth = 1;
+      // Horizontal
+      this.ctx.moveTo(0, node.y);
+      this.ctx.lineTo(width, node.y);
+      // Vertical
+      this.ctx.moveTo(node.x, 0);
+      this.ctx.lineTo(node.x, height);
+      this.ctx.stroke();
+      this.ctx.restore();
 
       // Node Pulse
       this.ctx.beginPath();

@@ -21,204 +21,193 @@
   </div>
 
   <div class="studio-container">
-    <!-- SIDEBAR: TECH RACK -->
-    <aside class="tech-rack">
-      <div class="rack-unit logo-unit">
-        <div class="logo-box">
-          <div class="brand-main">
-            <span class="b-p">Equo</span><span class="b-s">Mix</span>
-          </div>
-          <div class="brand-sub">
-            PRO STUDIO <span class="dot"></span> V0.0.1
-          </div>
-        </div>
-      </div>
-
-      <div class="rack-units-scroll">
-        <!-- ENGINE MODULE -->
-        <div class="rack-unit">
-          <header class="unit-header">
-            <span class="unit-title">AUDIO ENGINE</span>
-            <span class="unit-id">DSP-01</span>
-          </header>
-          <div class="engine-cluster">
-            <button class="engine-opt active" id="btn-iir">
-              <span class="l1">ANALOG</span>
-              <span class="l2">IIR-SERIES</span>
-            </button>
-            <button class="engine-opt" id="btn-fft">
-              <span class="l1">SPECTRAL</span>
-              <span class="l2">FFT-LINEAR</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- MIXER MODULE -->
-        <div class="rack-unit">
-          <header class="unit-header">
-            <span class="unit-title">MASTER MIXER</span>
-            <span class="unit-id">MOD-02</span>
-          </header>
-          <div class="mixer-interface">
-            <div class="vu-meters-stack">
-              <div class="vu-lane">
-                <div class="vu-rail">
-                  <div class="vu-fill" id="vu-a-fill"></div>
-                </div>
-                <span class="vu-label">DECK A</span>
-              </div>
-              <div class="vu-lane">
-                <div class="vu-rail">
-                  <div class="vu-fill" id="vu-b-fill"></div>
-                </div>
-                <span class="vu-label">DECK B</span>
-              </div>
-            </div>
-            <div class="gain-control">
-              <div class="digital-readout">
-                <label>OUTPUT</label>
-                <div class="num" id="master-gain-val">0.0</div>
-                <div class="dim">dB</div>
-              </div>
-              <div class="fader-track">
-                <input type="range" id="master-gain-slider" min="-24" max="12" step="0.1" value="0" class="pro-fader" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- SYSTEM STATS -->
-        <div class="rack-unit system-unit">
-          <div class="stat-row"><span>SAMPLING</span><span>48.0 kHz</span></div>
-          <div class="stat-row"><span>LATENCY</span><span>1.2 ms</span></div>
-          <div class="stat-row"><span>BUFFER</span><span>2048 smp</span></div>
-        </div>
-      </div>
-    </aside>
-
     <!-- MAIN STAGE -->
     <main class="stage">
       <!-- TOP DECKS -->
       <div class="decks-grid">
         <!-- DECK 1 -->
         <section class="cyber-deck" id="deck-a">
-          <div class="deck-overlay"></div>
-          <div class="deck-top-bar">
-            <div class="deck-name">DECK 1</div>
-            <button class="vocal-kill-btn" id="vk-a">VOCAL KILL</button>
-            <div class="bpm-module">
-              <input type="text" class="bpm-val" id="bpm-a" value="---" spellcheck="false" />
-              <span class="lab">BPM</span>
+          <div class="deck-top-info">
+            <div class="deck-letter">A</div>
+            <div class="track-meta">
+              <h3 id="name-a">NO TRACK LOADED</h3>
+              <div class="track-details">
+                <span class="lcd-text" id="bpm-readout-a">--- BPM</span>
+                <span class="lcd-text" id="key-readout-a">--</span>
+              </div>
+            </div>
+            <div class="time-module">
+              <div class="time-main" id="time-a">00:00:00</div>
+              <div class="time-rem" id="time-rem-a">-00:00:00</div>
             </div>
           </div>
 
-          <div class="deck-center">
-            <div class="jog-wrap">
-              <svg class="progress-ring" width="180" height="180">
-                <circle class="ring-bg" cx="90" cy="90" r="85"></circle>
-                <circle class="ring-fill" id="ring-a" cx="90" cy="90" r="85"></circle>
-              </svg>
-              <div class="jog-wheel" id="jog-a">
+          <div class="waveforms-container">
+            <!-- Main scrolling zoomed waveform -->
+            <div class="wave-main" id="wave-main-a">
+              <div class="playhead"></div>
+            </div>
+            <!-- Full track overview strip -->
+            <div class="wave-strip" id="wave-strip-a">
+              <div class="strip-progress" id="strip-progress-a"></div>
+            </div>
+          </div>
+
+          <div class="deck-control-unit">
+            <div class="deck-actions">
+              <button class="vocal-kill-btn" id="vk-a">STEMS</button>
+              <button class="import-btn upload-btn" data-deck="a">BROWSE</button>
+            </div>
+
+            <div class="performance-row">
+              <button class="perf-btn sync" id="sync-a">SYNC</button>
+              <button class="perf-btn cue" id="cue-a">CUE</button>
+              <button class="perf-btn cup" id="cup-a">CUP</button>
+              <button class="perf-btn play" id="play-a">▶</button>
+            </div>
+
+            <div class="deck-sidebar">
+              <div class="pitch-container">
+                <div class="pitch-lcd" id="pitch-val-a">0.0%</div>
+                <input type="range" class="pitch-slider-v" id="pitch-a" min="0.9" max="1.1" step="0.0001" value="1" />
+              </div>
+              <div class="jog-mini" id="jog-a">
                 <div class="jog-inner"></div>
-                <div class="jog-marker"></div>
-              </div>
-              <button class="play-trigger" id="play-a" disabled>▶</button>
-            </div>
-
-            <div class="deck-info">
-              <h3 id="name-a">INSERT MEDIA</h3>
-              <div class="deck-status" id="status-a">STANDBY</div>
-              <div class="waveform-box" id="wave-a">
-                <div class="time-readout" id="time-a">00:00:00.000</div>
               </div>
             </div>
-          </div>
-
-          <div class="deck-footer">
-            <div class="pitch-fader-box">
-              <div class="p-lcd" id="pitch-val-a">+0.00%</div>
-              <input type="range" class="pitch-slider" id="pitch-a" min="0.9" max="1.1" step="0.001" value="1" />
-              <label>TEMPO</label>
-            </div>
-            <button class="import-btn upload-btn" data-deck="a">LOAD TRACK</button>
           </div>
         </section>
 
-        <!-- CROSSFADER HUB -->
+        <!-- MASTER HUB: HIGH-DENSITY MIXER -->
         <div class="mixer-center-hub">
-          <div class="xfader-unit">
-            <div class="xfader-header">
-              <span class="x-label">X-FADER</span>
-              <span class="x-id">FX-LINK</span>
+          <div class="m-brand">
+            <span class="b-p">Equo</span><span class="b-s">Mix</span>
+          </div>
+          <!-- TOP: Master Gain & Global Toggles -->
+          <div class="master-top-controls">
+            <div class="m-gain-section">
+              <div class="m-fader-unit">
+                <div class="m-fader-rack">
+                  <div class="m-fader-track-v">
+                    <div class="fader-ticks">
+                      <span>+12</span><span>0</span><span>-6</span><span>-12</span><span>-24</span>
+                    </div>
+                    <input type="range" id="master-gain-slider" min="-24" max="12" step="0.1" value="0"
+                      class="m-fader-v" />
+                  </div>
+                </div>
+              </div>
+              <div class="m-readout-unit">
+                <span class="m-label">MASTER OUT</span>
+                <div class="m-readout">
+                  <span id="master-gain-val">00.0</span><span class="m-unit">dB</span>
+                </div>
+              </div>
             </div>
+
+            <div class="m-toggles">
+              <div class="m-toggle-col">
+                <span class="col-label">ENGINE</span>
+                <button class="m-toggle-btn active" id="mode-analog">ANALOG</button>
+                <button class="m-toggle-btn" id="mode-spectral">SPECTRAL</button>
+              </div>
+              <div class="m-toggle-col">
+                <span class="col-label">UTILITY</span>
+                <button class="m-toggle-btn disabled" id="btn-snap" disabled title="Requires Beat Grid Analysis (Coming Soon)">SNAP</button>
+                <button class="m-toggle-btn disabled" id="btn-quant" disabled title="Requires Beat Grid Analysis (Coming Soon)">QUANT</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- CENTER: Dual Master VU Meters -->
+          <div class="master-vu-container">
+            <div class="m-vu-strip left">
+              <div class="m-vu-fill" id="master-vu-l"></div>
+              <div class="m-vu-ticks"></div>
+            </div>
+            <div class="m-vu-strip right">
+              <div class="m-vu-fill" id="master-vu-r"></div>
+              <div class="m-vu-ticks"></div>
+            </div>
+          </div>
+
+          <!-- BOTTOM: Crossfader Unit -->
+          <div class="xfader-unit">
             <div class="xfader-track-wrap">
               <div class="xfader-path">
                 <input type="range" id="crossfader" min="0" max="1" step="0.01" value="0.5" class="xfader-handle" />
               </div>
             </div>
-            <div class="xfader-footer">
-              <span>DECK A</span>
-              <span>DECK B</span>
+            <div class="xfader-labels">
+              <span>A</span>
+              <span>X-FADE</span>
+              <span>B</span>
             </div>
           </div>
         </div>
 
         <!-- DECK 2 -->
         <section class="cyber-deck" id="deck-b">
-          <div class="deck-overlay"></div>
-          <div class="deck-top-bar">
-            <div class="deck-name">DECK 2</div>
-            <button class="vocal-kill-btn" id="vk-b">VOCAL KILL</button>
-            <div class="bpm-module">
-              <input type="text" class="bpm-val" id="bpm-b" value="---" spellcheck="false" />
-              <span class="lab">BPM</span>
+          <div class="deck-top-info">
+            <div class="deck-letter">B</div>
+            <div class="track-meta">
+              <h3 id="name-b">NO TRACK LOADED</h3>
+              <div class="track-details">
+                <span class="lcd-text" id="bpm-readout-b">--- BPM</span>
+                <span class="lcd-text" id="key-readout-b">--</span>
+              </div>
+            </div>
+            <div class="time-module">
+              <div class="time-main" id="time-b">00:00:00</div>
+              <div class="time-rem" id="time-rem-b">-00:00:00</div>
             </div>
           </div>
 
-          <div class="deck-center">
-            <div class="jog-wrap">
-              <svg class="progress-ring" width="180" height="180">
-                <circle class="ring-bg" cx="90" cy="90" r="85"></circle>
-                <circle class="ring-fill" id="ring-b" cx="90" cy="90" r="85"></circle>
-              </svg>
-              <div class="jog-wheel" id="jog-b">
+          <div class="waveforms-container">
+            <div class="wave-main" id="wave-main-b">
+              <div class="playhead"></div>
+            </div>
+            <div class="wave-strip" id="wave-strip-b">
+              <div class="strip-progress" id="strip-progress-b"></div>
+            </div>
+          </div>
+
+          <div class="deck-control-unit">
+            <div class="deck-actions">
+              <button class="vocal-kill-btn" id="vk-b">STEMS</button>
+              <button class="import-btn upload-btn" data-deck="b">BROWSE</button>
+            </div>
+
+            <div class="performance-row">
+              <button class="perf-btn sync" id="sync-b">SYNC</button>
+              <button class="perf-btn cue" id="cue-b">CUE</button>
+              <button class="perf-btn cup" id="cup-b">CUP</button>
+              <button class="perf-btn play" id="play-b">▶</button>
+            </div>
+
+            <div class="deck-sidebar">
+              <div class="pitch-container">
+                <div class="pitch-lcd" id="pitch-val-b">0.0%</div>
+                <input type="range" class="pitch-slider-v" id="pitch-b" min="0.9" max="1.1" step="0.0001" value="1" />
+              </div>
+              <div class="jog-mini" id="jog-b">
                 <div class="jog-inner"></div>
-                <div class="jog-marker"></div>
-              </div>
-              <button class="play-trigger" id="play-b" disabled>▶</button>
-            </div>
-
-            <div class="deck-info">
-              <h3 id="name-b">INSERT MEDIA</h3>
-              <div class="deck-status" id="status-b">STANDBY</div>
-              <div class="waveform-box" id="wave-b">
-                <div class="time-readout" id="time-b">00:00:00.000</div>
               </div>
             </div>
-          </div>
-
-          <div class="deck-footer">
-            <div class="pitch-fader-box">
-              <div class="p-lcd" id="pitch-val-b">+0.00%</div>
-              <input type="range" class="pitch-slider" id="pitch-b" min="0.9" max="1.1" step="0.001" value="1" />
-              <label>TEMPO</label>
-            </div>
-            <button class="import-btn upload-btn" data-deck="b">LOAD TRACK</button>
           </div>
         </section>
       </div>
+
+      <div class="stage-resizer" id="stage-resizer"></div>
 
       <!-- THE MAIN CONSOLE: SPECTROGRAM WATERFALL -->
       <div class="master-console">
         <header class="master-header">
           <div class="h-left">
-            <div class="m-title-wrap">
-              <span class="m-prefix">ULTRA</span>
-              <h2>ANALYZER</h2>
-            </div>
-            <div class="m-status">
-              <span class="m-led"></span>
-              ACTIVE REFERENCE MONITOR
+            <div class="master-tabs">
+              <button class="tab-btn active" data-target="pane-analyzer">ANALYZER</button>
+              <button class="tab-btn" data-target="pane-waveforms">WAVEFORMS</button>
+              <button class="tab-btn" data-target="pane-library">CRATES</button>
             </div>
           </div>
           <div class="h-right">
@@ -231,10 +220,73 @@
             </button>
           </div>
         </header>
-        <div class="analysis-stage" id="analysis-stage">
-          <div id="eq-bands-overlay" class="eq-bands-overlay"></div>
-          <canvas id="eq-canvas"></canvas>
-          <div class="scanline"></div>
+        <div class="master-content-area">
+          <div class="tab-pane active" id="pane-analyzer">
+            <div class="analysis-stage" id="analysis-stage">
+              <div id="eq-bands-overlay" class="eq-bands-overlay"></div>
+              <canvas id="eq-canvas"></canvas>
+              <div class="scanline"></div>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="pane-waveforms">
+            <div class="stacked-waveforms-container">
+              <canvas id="stacked-waveforms-canvas"></canvas>
+              <div class="center-playhead"></div>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="pane-library">
+            <div class="library-container">
+              <aside class="library-sidebar">
+                <div class="side-nav-group">
+                  <div class="side-nav-item active">
+                    <span class="icon"></span> TRACK COLLECTION
+                  </div>
+                  <div class="side-nav-item">
+                    <span class="icon"></span> FAVORITES
+                  </div>
+                  <div class="side-nav-item">
+                    <span class="icon"></span> HISTORY
+                  </div>
+                </div>
+                <div class="side-nav-group">
+                  <header>PLAYLISTS</header>
+                  <div class="side-nav-item">HOUSE CLASSICS</div>
+                  <div class="side-nav-item">TECHNO PEAK</div>
+                  <div class="side-nav-item">DEEP VIBES</div>
+                </div>
+              </aside>
+
+              <div class="library-main">
+                <div class="library-toolbar">
+                  <div class="lib-actions-group">
+                    <button class="lib-add-btn" id="lib-link-btn">LINK FOLDER</button>
+                    <button class="lib-add-btn" id="lib-add-btn">IMPORT FILES</button>
+                  </div>
+                  <input type="file" id="lib-upload" multiple accept="audio/*" style="display: none;" />
+                  <input type="file" id="lib-folder-upload" webkitdirectory directory multiple style="display: none;" />
+                  <div class="lib-search-box">
+                    <input type="text" id="lib-search" placeholder="SEARCH COLLECTION..." spellcheck="false" />
+                  </div>
+                </div>
+
+                <div class="lib-list-header">
+                  <div class="l-col l-index">#</div>
+                  <div class="l-col l-cover"></div>
+                  <div class="l-col l-title">TITLE</div>
+                  <div class="l-col l-artist">ARTIST</div>
+                  <div class="l-col l-bpm">BPM</div>
+                  <div class="l-col l-key">KEY</div>
+                  <div class="l-col l-rating">RATING</div>
+                  <div class="l-col l-act">ROUTING</div>
+                </div>
+                <div class="lib-list" id="lib-list">
+                  <div class="lib-empty">CRATE IS EMPTY. ADD MEDIA.</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
