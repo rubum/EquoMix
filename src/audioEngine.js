@@ -136,6 +136,7 @@ export class AudioEngine {
   }
 
   async loadTrack(deckId, url) {
+    this.eject(deckId); // Clear any existing track before loading new one
     const deck = this.decks[deckId];
 
     deck.audio.src = url;

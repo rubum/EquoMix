@@ -499,6 +499,7 @@ export class UIController {
         this.decks[this.pendingDeck].isReady = false;
 
         const id = this.pendingDeck;
+        this.ejectTrack(id); // Fully reset the deck UI before loading new track
         const d = this.decks[id];
         d.name.textContent = file.name.toUpperCase();
 
@@ -770,6 +771,7 @@ export class UIController {
     if (!track) return;
 
     const d = this.decks[deckId];
+    this.ejectTrack(deckId); // Clear existing UI/State before loading new track
 
     // UI Updates
     d.name.textContent = track.name.toUpperCase();
