@@ -161,13 +161,84 @@ export class AudioEngine {
     const bpm = this.calculateBPM(audioBuffer);
     deck.bpm = bpm;
 
+    // Process offline 5-band separation for the visualizer
+    const { bandData, sampleRate } = await this.splitBufferIntoBands(audioBuffer);
+
     window.dispatchEvent(new CustomEvent('track-loaded', {
-      detail: { deckId, bpm, buffer: audioBuffer }
+      detail: { deckId, bpm, buffer: audioBuffer, bandData, bandSampleRate: sampleRate }
     }));
   }
 
+  eject(deckId) {
+    const deck = this.decks[deckId];
+    deck.audio.pause();
+    deck.audio.src = '';
+    deck.audio.load();
+    deck.bpm = 0;
+  }
+
+
+  async splitBufferIntoBands(buffer) {
+    /**
+     * Spectral Separation DSP Pipeline:
+     * We use an OfflineAudioContext to process the entire track at high speed 
+     * without affecting the real-time audio thread.
+     * 
+     * Sample Rate Selection: 
+     * We use 22050Hz (half of standard 44.1kHz). 
+     * By the Nyquist theorem, this allows us to capture frequencies up to 11025Hz.
+     * This is ideal because our highest band (High/Air) starts at 10kHz, 
+     * and reducing the sample rate saves 50% of the memory required for the 5-band Float32Arrays.
+     */
+    const sampleRate = 22050; 
+    const length = Math.floor(buffer.duration * sampleRate);
+    
+    const offlineCtx = new OfflineAudioContext(5, length, sampleRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = buffer; 
+    
+    // Create a 5-channel merger to collect the parallel filter outputs
+    const merger = offlineCtx.createChannelMerger(5);
+    
+    // Crossover Points matching the hardware EQ bands (Ruby, Amber, Moss, Teal, Cobalt)
+    const filters = [
+      { type: 'lowpass', freq: 100 },       // Sub/Low
+      { type: 'bandpass', freq: 250 },      // Low-Mid
+      { type: 'bandpass', freq: 1000 },     // Mid
+      { type: 'bandpass', freq: 4000 },     // High-Mid
+      { type: 'highpass', freq: 10000 }     // High/Air
+    ];
+    
+    filters.forEach((f, i) => {
+      const filter = offlineCtx.createBiquadFilter();
+      filter.type = f.type;
+      filter.frequency.value = f.freq;
+      source.connect(filter);
+      filter.connect(merger, 0, i);
+    });
+    
+    merger.connect(offlineCtx.destination);
+    source.start(0);
+    
+    // Start the accelerated offline render
+    const renderedBuffer = await offlineCtx.startRendering();
+    
+    // Extract the raw frequency-limited time-domain data
+    const bandData = [];
+    for(let i=0; i<5; i++) {
+      bandData.push(renderedBuffer.getChannelData(i));
+    }
+    
+    return { bandData, sampleRate };
+  }
+
   setCrossfade(value) {
-    // Constant power crossfade
+    /**
+     * Constant Power Crossfade:
+     * To prevent a volume drop in the middle of the crossfader (value = 0.5),
+     * we use a trigonometric curve (Cos/Sin) instead of a linear one.
+     * This ensures the combined gain (A^2 + B^2) remains constant at 1.0 throughout the fade.
+     */
     this.xfadeGainA.gain.value = Math.cos(value * 0.5 * Math.PI);
     this.xfadeGainB.gain.value = Math.sin(value * 0.5 * Math.PI);
   }

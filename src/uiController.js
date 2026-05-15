@@ -110,6 +110,7 @@ export class UIController {
       name: document.getElementById(`name-${id}`),
       bpm: document.getElementById(`bpm-readout-${id}`),
       key: document.getElementById(`key-readout-${id}`),
+      ejectBtn: document.getElementById(`eject-${id}`),
       pitch: document.getElementById(`pitch-${id}`),
       pitchVal: document.getElementById(`pitch-val-${id}`),
       waveMain: document.getElementById(`wave-main-${id}`),
@@ -125,7 +126,8 @@ export class UIController {
       mainCanvas: null,
       stripCanvas: null,
       waveformBuffer: null,
-      cuePoint: 0
+      cuePoint: 0,
+      isReady: false
     };
     return d;
   }
@@ -307,6 +309,7 @@ export class UIController {
       const deck = this.engine.decks[id];
 
       d.playBtn.addEventListener('click', () => {
+        if (!d.isReady) return;
         if (deck.audio.paused) {
           if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
           deck.audio.play();
@@ -321,6 +324,7 @@ export class UIController {
 
       // CUE Logic
       d.cueBtn.addEventListener('mousedown', () => {
+        if (!d.isReady) return;
         if (deck.audio.paused) {
           if (Math.abs(deck.audio.currentTime - d.cuePoint) < 0.1) {
             // Stutter play
@@ -355,7 +359,8 @@ export class UIController {
 
       // CUP Logic
       d.cupBtn.addEventListener('click', () => {
-        deck.audio.currentTime = d.cuePoint;
+        if (!d.isReady) return;
+        this.engine.setCue(id, d.cuePoint);
         if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
         deck.audio.play();
         d.playBtn.classList.add('active');
@@ -367,6 +372,7 @@ export class UIController {
 
       // SYNC Logic
       d.syncBtn.addEventListener('click', () => {
+        if (!d.isReady) return;
         const otherId = id === 'a' ? 'b' : 'a';
         const otherDeck = this.decks[otherId];
 
@@ -396,6 +402,10 @@ export class UIController {
       d.upload.addEventListener('click', () => {
         this.pendingDeck = id;
         this.audioUpload.click();
+      });
+
+      d.ejectBtn.addEventListener('click', () => {
+        this.ejectTrack(id);
       });
 
       if (d.vkBtn) {
@@ -485,6 +495,9 @@ export class UIController {
     this.audioUpload.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file && this.pendingDeck) {
+        // Mark as not ready during load/process
+        this.decks[this.pendingDeck].isReady = false;
+
         const id = this.pendingDeck;
         const d = this.decks[id];
         d.name.textContent = file.name.toUpperCase();
@@ -504,11 +517,15 @@ export class UIController {
     });
 
     window.addEventListener('track-loaded', (e) => {
-      const { deckId, bpm, buffer } = e.detail;
+      const { deckId, bpm, buffer, bandData, bandSampleRate } = e.detail;
       const d = this.decks[deckId];
       const deck = this.engine.decks[deckId];
       d.baseBPM = bpm;
       d.bpm.textContent = `${bpm} BPM`;
+
+      d.bandData = bandData;
+      d.bandSampleRate = bandSampleRate;
+      d.isReady = true;
 
       this.drawCyberWaveform(deckId, buffer);
 
@@ -583,7 +600,7 @@ export class UIController {
         const targetId = tab.getAttribute('data-target');
         const pane = document.getElementById(targetId);
         if (pane) pane.classList.add('active');
-        
+
         this.activeMasterTab = targetId;
 
         // Toggle visibility of Reset All Bands button
@@ -591,7 +608,7 @@ export class UIController {
         if (resetBtn) {
           resetBtn.style.display = targetId === 'pane-analyzer' ? 'block' : 'none';
         }
-        
+
         // Resize canvases when switching tabs
         if (targetId === 'pane-analyzer') this.resizeCanvas();
         if (targetId === 'pane-waveforms') this.resizeStackedCanvas();
@@ -776,6 +793,26 @@ export class UIController {
     }
   }
 
+  ejectTrack(id) {
+    this.engine.eject(id);
+    const d = this.decks[id];
+    d.isReady = false;
+    d.waveformBuffer = null;
+    d.bandData = null;
+    d.name.textContent = 'NO TRACK LOADED';
+    d.bpm.textContent = '--- BPM';
+    d.timeReadout.textContent = '00:00:00';
+    d.timeRem.textContent = '00:00:00';
+
+    // Clear canvases
+    if (d.waveMain) d.waveMain.innerHTML = '<div class="playhead"></div>';
+    if (d.waveStrip) d.waveStrip.innerHTML = '<div class="strip-progress"></div>';
+
+    // Reset play button state
+    d.playBtn.classList.remove('active');
+    d.playBtn.textContent = '▶';
+  }
+
   drawCyberWaveform(id, buffer) {
     const d = this.decks[id];
     d.waveformBuffer = buffer.getChannelData(0);
@@ -796,15 +833,40 @@ export class UIController {
     const step = Math.ceil(data.length / sCanvas.width);
     const amp = sCanvas.height / 2;
 
-    sCtx.fillStyle = id === 'a' ? '#3498db' : '#e67e22';
-    for (let i = 0; i < sCanvas.width; i++) {
-      let max = 0;
-      for (let j = 0; j < step; j += 10) {
-        const datum = Math.abs(data[i * step + j]);
-        if (datum > max) max = datum;
+    sCtx.globalCompositeOperation = 'lighter';
+    const bandColors = this.colors.bands;
+
+    if (d.bandData) {
+      const bandStep = Math.ceil(d.bandData[0].length / sCanvas.width);
+      for (let i = 0; i < sCanvas.width; i++) {
+        for (let b = 0; b < 5; b++) {
+          const bData = d.bandData[b];
+          let max = 0;
+          for (let j = 0; j < bandStep; j += 10) {
+            const datum = Math.abs(bData[i * bandStep + j]);
+            if (datum > max) max = datum;
+          }
+          if (max > 0) {
+            sCtx.fillStyle = bandColors[b];
+            sCtx.globalAlpha = 0.8;
+            sCtx.fillRect(i, amp - (max * amp), 1, max * amp * 2);
+          }
+        }
       }
-      sCtx.fillRect(i, amp - (max * amp), 1, max * amp * 2);
+    } else {
+      // Fallback if no bands
+      sCtx.fillStyle = id === 'a' ? '#3498db' : '#e67e22';
+      for (let i = 0; i < sCanvas.width; i++) {
+        let max = 0;
+        for (let j = 0; j < step; j += 10) {
+          const datum = Math.abs(data[i * step + j]);
+          if (datum > max) max = datum;
+        }
+        sCtx.fillRect(i, amp - (max * amp), 1, max * amp * 2);
+      }
     }
+    sCtx.globalAlpha = 1.0;
+    sCtx.globalCompositeOperation = 'source-over';
 
     // 2. Setup Main Scrolling Waveform
     d.waveMain.innerHTML = '<div class="playhead"></div>';
@@ -825,27 +887,74 @@ export class UIController {
     const ctx = d.mainCanvas.getContext('2d');
     const width = d.mainCanvas.width;
     const height = d.mainCanvas.height;
-    const buffer = d.waveformBuffer;
 
     ctx.clearRect(0, 0, width, height);
 
-    // Zoom level (samples visible) - 40,000 is a good "pro" look
-    const zoom = 40000;
-    const currentSample = deck.audio.currentTime * 44100;
-    const startSample = currentSample - zoom / 2;
-
     const amp = height / 2;
-    const step = zoom / width;
+    const bandColors = this.colors.bands;
 
-    for (let i = 0; i < width; i++) {
-      const idx = Math.floor(startSample + i * step);
-      if (idx >= 0 && idx < buffer.length) {
-        const val = Math.abs(buffer[idx]);
-        const h = val * amp * 2.5; // Boosted for impact
+    if (d.bandData && d.bandSampleRate) {
+      // Use 'screen' blending to merge the 5 frequency bands into a vibrant composite waveform
+      ctx.globalCompositeOperation = 'screen';
 
-        // Spectral Color Logic
-        ctx.fillStyle = this.getSpectralColor(val, id);
-        ctx.fillRect(i, amp - h / 2, 1, h);
+      // windowSec defines the total time duration (in seconds) shown across the width of the canvas.
+      // 4 seconds provides a high-detail 'zoom' for precise cueing and beat-matching.
+      const windowSec = 4;
+      // Calculate total samples required to represent the 4-second window
+      const samplesInWindow = d.bandSampleRate * windowSec;
+      // Map these samples to the horizontal pixel width
+      const step = Math.max(1, Math.floor(samplesInWindow / width));
+
+      const currentTime = deck.audio.currentTime || 0;
+      // Convert time to the exact sample position in the buffer
+      const currentSample = currentTime * d.bandSampleRate;
+      // Offset the start point by half the window so the playhead (currentTime) is centered
+      const startSample = currentSample - samplesInWindow / 2;
+
+      for (let b = 0; b < 5; b++) {
+        const bData = d.bandData[b];
+        ctx.fillStyle = bandColors[b];
+        ctx.globalAlpha = 0.8;
+
+        for (let i = 0; i < width; i++) {
+          // Map pixel 'i' to the corresponding sample index
+          const idx = Math.floor(startSample + i * step);
+          if (idx >= 0 && idx < bData.length) {
+            // Since one pixel represents 'step' samples, we find the peak amplitude 
+            // within that range to ensure the waveform looks full and doesn't miss transients.
+            let max = 0;
+            const checkStep = Math.max(1, Math.floor(step / 4)); // Sub-sample for performance
+            for (let j = 0; j < step; j += checkStep) {
+              if (idx + j < bData.length) {
+                const val = Math.abs(bData[idx + j]);
+                if (val > max) max = val;
+              }
+            }
+            // 'h' is the visual amplitude. We scale by 4.0 for high dynamic visual impact.
+            const h = max * amp * 4.0;
+            if (h > 0.5) ctx.fillRect(i, amp - h / 2, 1, h);
+          }
+        }
+      }
+
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+    } else {
+      // Fallback
+      const buffer = d.waveformBuffer;
+      const zoom = 40000;
+      const currentSample = deck.audio.currentTime * 44100;
+      const startSample = currentSample - zoom / 2;
+      const step = zoom / width;
+
+      for (let i = 0; i < width; i++) {
+        const idx = Math.floor(startSample + i * step);
+        if (idx >= 0 && idx < buffer.length) {
+          const val = Math.abs(buffer[idx]);
+          const h = val * amp * 2.5;
+          ctx.fillStyle = this.getSpectralColor(val, id);
+          ctx.fillRect(i, amp - h / 2, 1, h);
+        }
       }
     }
   }
@@ -1001,73 +1110,154 @@ export class UIController {
     ctx.clearRect(0, 0, width, height);
 
     const halfHeight = height / 2;
+    const bandColors = this.colors.bands;
 
-    // Helper to draw a single scrolling deck waveform
-    const drawDeck = (id, yOffset, color) => {
+    const drawDeck = (id, yOffset, defaultColor, label) => {
       const d = this.decks[id];
       const deck = this.engine.decks[id];
+
+      // Draw background rail
+      ctx.fillStyle = 'rgba(255,255,255,0.02)';
+      ctx.fillRect(0, yOffset, width, halfHeight);
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.strokeRect(0, yOffset, width, halfHeight);
+
+      // Label
+      ctx.font = 'bold 10px var(--font-mono)';
+      ctx.fillStyle = defaultColor;
+      ctx.globalAlpha = 0.5;
+      ctx.fillText(label, 10, yOffset + 15);
+      ctx.globalAlpha = 1.0;
+
       if (!d.waveformBuffer) return;
 
-      const buffer = d.waveformBuffer;
-      const duration = deck.audio.duration || 1;
       const currentTime = deck.audio.currentTime || 0;
-
-      // Window size: how many seconds of audio fit on screen
-      const windowSec = 4; // 2 seconds before center playhead, 2 seconds after
-      const samplesPerSec = buffer.length / duration;
-      const samplesInWindow = samplesPerSec * windowSec;
-
-      const playheadSample = Math.floor((currentTime / duration) * buffer.length);
-      const startSample = Math.floor(playheadSample - (samplesInWindow / 2));
-      const step = Math.max(1, Math.floor(samplesInWindow / width));
-
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-
+      // 'amp' is the maximum height of the waveform slice (half of the track row height)
       const amp = halfHeight / 2;
+      // 'centerY' is the vertical midpoint of the specific deck's row
       const centerY = yOffset + amp;
 
-      for (let i = 0; i < width; i++) {
-        const sampleIdx = startSample + i * step;
-        if (sampleIdx >= 0 && sampleIdx < buffer.length) {
-          // Find peak in chunk
-          let max = 0;
-          for (let j = 0; j < step; j += 10) {
-            const idx = sampleIdx + j;
-            if (idx < buffer.length) {
-              const val = Math.abs(buffer[idx]);
-              if (val > max) max = val;
+      if (d.bandData && d.bandSampleRate) {
+        // Use 'screen' composite mode to blend the 5 frequency bands vibrantly
+        ctx.globalCompositeOperation = 'screen';
+
+        // windowSec defines the horizontal 'zoom' - we show 4 seconds of audio across the canvas width
+        const windowSec = 4;
+        // Total number of samples from the buffer that fit into this 4-second visual window
+        const samplesInWindow = d.bandSampleRate * windowSec;
+        // 'step' determines how many samples we skip for every 1 horizontal pixel on screen
+        const step = Math.max(1, Math.floor(samplesInWindow / width));
+
+        // Convert current playback time into a sample index
+        const currentSample = currentTime * d.bandSampleRate;
+        // Calculate the starting sample index so that the playhead (currentSample) is perfectly centered
+        const startSample = currentSample - samplesInWindow / 2;
+
+        for (let b = 0; b < 5; b++) {
+          const bData = d.bandData[b];
+          ctx.fillStyle = bandColors[b];
+          ctx.globalAlpha = 0.8;
+
+          for (let i = 0; i < width; i++) {
+            // Map the current pixel 'i' to the corresponding sample index in the buffer
+            const idx = Math.floor(startSample + i * step);
+
+            if (idx >= 0 && idx < bData.length) {
+              const val = Math.abs(bData[idx]);
+              // 'h' is the pixel height of the peak. 
+              // We multiply by 3.5 to boost the visual signal (visual gain) so transients pop
+              const h = val * amp * 3.5;
+              // Only draw if there's a visible signal to save on draw calls
+              if (h > 0.5) ctx.fillRect(i, centerY - h / 2, 1, h);
             }
           }
-          ctx.moveTo(i, centerY - (max * amp));
-          ctx.lineTo(i, centerY + (max * amp));
         }
+        ctx.globalAlpha = 1.0;
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        // Fallback for monochrome waveform if bandData is not yet available
+        const buffer = d.waveformBuffer;
+        const duration = deck.audio.duration || 1;
+        const windowSec = 4;
+        const samplesPerSec = buffer.length / duration;
+        const samplesInWindow = samplesPerSec * windowSec;
+
+        const playheadSample = Math.floor((currentTime / duration) * buffer.length);
+        const startSample = Math.floor(playheadSample - (samplesInWindow / 2));
+        const step = Math.max(1, Math.floor(samplesInWindow / width));
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = defaultColor;
+        ctx.beginPath();
+
+        for (let i = 0; i < width; i++) {
+          const sampleIdx = Math.floor(startSample + i * step);
+          if (sampleIdx >= 0 && sampleIdx < buffer.length) {
+            const val = Math.abs(buffer[sampleIdx]);
+            // Scaling for fallback waveform - 2.5 is slightly more conservative than the 5-band gain
+            const h = val * amp * 2.5;
+            ctx.moveTo(i, centerY - h / 2);
+            ctx.lineTo(i, centerY + h / 2);
+          }
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
+
     };
 
-    drawDeck('a', 0, '#3498db'); // Top half, Blue
-    drawDeck('b', halfHeight, '#00df9a'); // Bottom half, Mint
+    drawDeck('a', 0, this.colors.cyan, 'DECK A');
+    drawDeck('b', halfHeight, this.colors.green, 'DECK B');
+
+    // Central Shared Playhead
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'white';
+    ctx.beginPath();
+    ctx.moveTo(width / 2, 0);
+    ctx.lineTo(width / 2, height);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Center divider line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, halfHeight);
+    ctx.lineTo(width, halfHeight);
+    ctx.stroke();
   }
 
   updateHardwareState() {
     let totalAmp = 0;
+    const levels = { a: 0, b: 0 };
     ['a', 'b'].forEach(id => {
       const deck = this.engine.decks[id];
       const d = this.decks[id];
       const analyzer = id === 'a' ? this.engine.analyserA : this.engine.analyserB;
       const vu = id === 'a' ? this.vuA : this.vuB;
 
-      // VU Meter
+      // VU Meter - Signal Level Monitoring
       const data = new Float32Array(analyzer.fftSize);
+      // We pull the raw time-domain (amplitude) data from the analyzer
       analyzer.getFloatTimeDomainData(data);
+
+      // Calculate Root Mean Square (RMS) to determine the perceived loudness
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      // level is the normalized 0-100 value. 
+      // We use 350 as a gain multiplier to make the meters reactive to standard audio levels.
       const level = Math.min(100, Math.sqrt(sum / data.length) * 350);
+
       totalAmp += level;
+
+      // Peak detection with linear decay (0.94) to create a smooth 'analog' response
       if (level > vu.peak) vu.peak = level; else vu.peak *= 0.94;
+
+      // Update individual deck VU fills
       if (vu.fill) vu.fill.style.width = `${vu.peak}%`;
+      // Cache the level for the Master Deck A/B monitoring
+      levels[id] = vu.peak;
 
       // Waveform Rendering & Progress
       if (!deck.audio.paused || d.isDraggingStrip) {
@@ -1090,21 +1280,19 @@ export class UIController {
         const total = deck.audio.duration;
         const remaining = total - current;
 
+        // Show Remaining on the left, Elapsed on the right
+        // Fix -0 issue
+        d.timeRem.textContent = (remaining > 0.1 ? "-" : "") + this.formatTimeShort(remaining);
         d.timeReadout.textContent = this.formatTimeShort(current);
-        if (d.timeRem) {
-          d.timeRem.textContent = "-" + this.formatTimeShort(remaining);
-        }
       }
     });
 
     // Reactive Bass
     document.body.style.setProperty('--bass-glow', (totalAmp / 200).toString());
 
-    // Master VU Metering
-    const masterLevel = Math.min(100, totalAmp / 2);
-    if (masterLevel > this.masterVuPeak) this.masterVuPeak = masterLevel; else this.masterVuPeak *= 0.94;
-    if (this.masterVuL) this.masterVuL.style.height = `${this.masterVuPeak}%`;
-    if (this.masterVuR) this.masterVuR.style.height = `${this.masterVuPeak * 0.98}%`; // Slight offset for realism
+    // Master VU Metering - Switched to Deck A / Deck B monitoring
+    if (this.masterVuL) this.masterVuL.style.height = `${levels.a}%`;
+    if (this.masterVuR) this.masterVuR.style.height = `${levels.b}%`;
 
     // Spawn particles on bass hit
     if (totalAmp > 120 && Math.random() > 0.8) {
@@ -1243,6 +1431,13 @@ export class UIController {
     this.ctx.globalCompositeOperation = 'lighter';
 
     const drawCurve = (data, color, fillOpacity) => {
+      // Check if data has actual signal
+      let hasSignal = false;
+      for (let i = 0; i < data.length; i += 50) {
+        if (data[i] > -100) { hasSignal = true; break; }
+      }
+      if (!hasSignal) return;
+
       this.ctx.beginPath();
       let first = true;
       const nyquist = this.engine.ctx.sampleRate / 2;
@@ -1264,7 +1459,7 @@ export class UIController {
         }
         lastX = x;
       }
-      
+
       this.ctx.strokeStyle = color;
       this.ctx.lineWidth = 2;
       this.ctx.shadowBlur = 15;
@@ -1285,7 +1480,7 @@ export class UIController {
     // Draw Deck A (Blue) and Deck B (Mint/Orange)
     drawCurve(dataA, '#3498db', 0.25);
     drawCurve(dataB, '#00df9a', 0.25);
-    
+
     this.ctx.globalCompositeOperation = 'source-over';
 
     // 2. Draw Highlighted Section using Clip
@@ -1295,45 +1490,54 @@ export class UIController {
       this.ctx.rect(highlightStartX, 0, highlightEndX - highlightStartX, height);
       this.ctx.clip();
 
-      const masterData = new Float32Array(this.engine.masterAnalyser.frequencyBinCount);
-      this.engine.masterAnalyser.getFloatFrequencyData(masterData);
-
-      this.ctx.beginPath();
-      let first = true;
-      const nyquist = this.engine.ctx.sampleRate / 2;
-      let lastX = 0;
-
-      for (let i = 0; i < masterData.length; i++) {
-        const freq = i * nyquist / masterData.length;
-        if (freq < 20 || freq > 20000) continue;
-
-        const x = this.freqToX(freq);
-        const normalized = Math.max(0, (masterData[i] + 100) / 100);
-        const y = height - (normalized * height * 0.8);
-
-        if (first) {
-          this.ctx.moveTo(x, y);
-          first = false;
-        } else {
-          this.ctx.lineTo(x, y);
+      const drawHighlightCurve = (data) => {
+        // Check signal
+        let hasSignal = false;
+        for (let i = 0; i < data.length; i += 50) {
+          if (data[i] > -100) { hasSignal = true; break; }
         }
-        lastX = x;
-      }
+        if (!hasSignal) return;
 
-      this.ctx.strokeStyle = highlightColor;
-      this.ctx.lineWidth = 2;
-      this.ctx.shadowBlur = 15;
-      this.ctx.shadowColor = highlightColor;
-      this.ctx.stroke();
-      this.ctx.shadowBlur = 0;
+        this.ctx.beginPath();
+        let first = true;
+        const nyquist = this.engine.ctx.sampleRate / 2;
+        let lastX = 0;
 
-      const hiGrad = this.ctx.createLinearGradient(0, height, 0, 0);
-      hiGrad.addColorStop(0, `rgba(${this.hexToRgb(highlightColor)}, 0)`);
-      hiGrad.addColorStop(1, `rgba(${this.hexToRgb(highlightColor)}, 0.25)`);
-      this.ctx.fillStyle = hiGrad;
-      this.ctx.lineTo(lastX, height);
-      this.ctx.lineTo(this.freqToX(20), height);
-      this.ctx.fill();
+        for (let i = 0; i < data.length; i++) {
+          const freq = i * nyquist / data.length;
+          if (freq < 20 || freq > 20000) continue;
+
+          const x = this.freqToX(freq);
+          const normalized = Math.max(0, (data[i] + 100) / 100);
+          const y = height - (normalized * height * 0.8);
+
+          if (first) {
+            this.ctx.moveTo(x, y);
+            first = false;
+          } else {
+            this.ctx.lineTo(x, y);
+          }
+          lastX = x;
+        }
+
+        this.ctx.strokeStyle = highlightColor;
+        this.ctx.lineWidth = 2;
+        this.ctx.shadowBlur = 15;
+        this.ctx.shadowColor = highlightColor;
+        this.ctx.stroke();
+        this.ctx.shadowBlur = 0;
+
+        const hiGrad = this.ctx.createLinearGradient(0, height, 0, 0);
+        hiGrad.addColorStop(0, `rgba(${this.hexToRgb(highlightColor)}, 0)`);
+        hiGrad.addColorStop(1, `rgba(${this.hexToRgb(highlightColor)}, 0.25)`);
+        this.ctx.fillStyle = hiGrad;
+        this.ctx.lineTo(lastX, height);
+        this.ctx.lineTo(this.freqToX(20), height);
+        this.ctx.fill();
+      };
+
+      drawHighlightCurve(dataA);
+      drawHighlightCurve(dataB);
 
       this.ctx.restore();
     }
