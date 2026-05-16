@@ -107,6 +107,8 @@ export class UIController {
       cueBtn: document.getElementById(`cue-${id}`),
       syncBtn: document.getElementById(`sync-${id}`),
       cupBtn: document.getElementById(`cup-${id}`),
+      loopTrackBtn: document.getElementById(`loop-track-${id}`),
+      loopAutoBtn: document.getElementById(`loop-auto-${id}`),
       name: document.getElementById(`name-${id}`),
       bpm: document.getElementById(`bpm-readout-${id}`),
       key: document.getElementById(`key-readout-${id}`),
@@ -412,6 +414,27 @@ export class UIController {
         d.vkBtn.addEventListener('click', () => {
           const isActive = d.vkBtn.classList.toggle('active');
           this.engine.setVocalKill(id, isActive);
+        });
+      }
+
+      if (d.loopTrackBtn) {
+        d.loopTrackBtn.addEventListener('click', () => {
+          if (!d.isReady) return;
+          const isActive = this.engine.toggleTrackLoop(id);
+          d.loopTrackBtn.classList.toggle('active', isActive);
+          if (isActive && d.loopAutoBtn) {
+            // Ensure they are mutually exclusive in UI if you want, 
+            // but functionally they can coexist, though it might be weird.
+            // Let's just toggle the class.
+          }
+        });
+      }
+
+      if (d.loopAutoBtn) {
+        d.loopAutoBtn.addEventListener('click', () => {
+          if (!d.isReady) return;
+          const isActive = this.engine.toggleAutoLoop(id);
+          d.loopAutoBtn.classList.toggle('active', isActive);
         });
       }
 
@@ -813,6 +836,8 @@ export class UIController {
     // Reset play button state
     d.playBtn.classList.remove('active');
     d.playBtn.textContent = '▶';
+    if (d.loopTrackBtn) d.loopTrackBtn.classList.remove('active');
+    if (d.loopAutoBtn) d.loopAutoBtn.classList.remove('active');
   }
 
   drawCyberWaveform(id, buffer) {

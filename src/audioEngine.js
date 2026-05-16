@@ -73,7 +73,7 @@ export class AudioEngine {
     normalPath.connect(gain);
     vkToggle.connect(gain);
 
-    return {
+    const deck = {
       audio,
       source,
       gain,
@@ -84,8 +84,22 @@ export class AudioEngine {
       normalPath,
       bpm: 0,
       pitch: 1.0,
-      vkActive: false
+      vkActive: false,
+      autoLoopActive: false,
+      autoLoopStart: 0,
+      autoLoopEnd: 0
     };
+
+    audio.addEventListener('timeupdate', () => {
+      if (deck.autoLoopActive && deck.autoLoopEnd > 0) {
+        // Add a tiny buffer to avoid missing the precise boundary
+        if (audio.currentTime >= deck.autoLoopEnd) {
+          audio.currentTime = deck.autoLoopStart + (audio.currentTime - deck.autoLoopEnd);
+        }
+      }
+    });
+
+    return deck;
   }
 
   setupMasterEQ() {
@@ -119,7 +133,6 @@ export class AudioEngine {
     this.decks.a.gain.connect(this.analyserA);
     this.analyserA.connect(this.xfadeGainA);
 
-    //https://blog.native-instruments.com/wp-content/uploads/dynamic/2018/02/Traktor-track-library-hero-1400x0-c-default.jpg Deck B -> AnalyserB -> XfadeB -> MasterEQ
     this.decks.b.gain.connect(this.analyserB);
     this.analyserB.connect(this.xfadeGainB);
 
@@ -191,16 +204,16 @@ export class AudioEngine {
      * This is ideal because our highest band (High/Air) starts at 10kHz, 
      * and reducing the sample rate saves 50% of the memory required for the 5-band Float32Arrays.
      */
-    const sampleRate = 22050; 
+    const sampleRate = 22050;
     const length = Math.floor(buffer.duration * sampleRate);
-    
+
     const offlineCtx = new OfflineAudioContext(5, length, sampleRate);
     const source = offlineCtx.createBufferSource();
-    source.buffer = buffer; 
-    
+    source.buffer = buffer;
+
     // Create a 5-channel merger to collect the parallel filter outputs
     const merger = offlineCtx.createChannelMerger(5);
-    
+
     // Crossover Points matching the hardware EQ bands (Ruby, Amber, Moss, Teal, Cobalt)
     const filters = [
       { type: 'lowpass', freq: 100 },       // Sub/Low
@@ -209,7 +222,7 @@ export class AudioEngine {
       { type: 'bandpass', freq: 4000 },     // High-Mid
       { type: 'highpass', freq: 10000 }     // High/Air
     ];
-    
+
     filters.forEach((f, i) => {
       const filter = offlineCtx.createBiquadFilter();
       filter.type = f.type;
@@ -217,19 +230,19 @@ export class AudioEngine {
       source.connect(filter);
       filter.connect(merger, 0, i);
     });
-    
+
     merger.connect(offlineCtx.destination);
     source.start(0);
-    
+
     // Start the accelerated offline render
     const renderedBuffer = await offlineCtx.startRendering();
-    
+
     // Extract the raw frequency-limited time-domain data
     const bandData = [];
-    for(let i=0; i<5; i++) {
+    for (let i = 0; i < 5; i++) {
       bandData.push(renderedBuffer.getChannelData(i));
     }
-    
+
     return { bandData, sampleRate };
   }
 
@@ -385,5 +398,30 @@ export class AudioEngine {
 
   resetEQ() {
     this.iirBands.forEach((band, i) => this.updateBand(i, band.freq, 0));
+  }
+
+  toggleTrackLoop(deckId) {
+    const deck = this.decks[deckId];
+    deck.audio.loop = !deck.audio.loop;
+    return deck.audio.loop;
+  }
+
+  toggleAutoLoop(deckId, beats = 4) {
+    const deck = this.decks[deckId];
+    deck.autoLoopActive = !deck.autoLoopActive;
+    
+    if (deck.autoLoopActive) {
+      if (deck.bpm > 0) {
+        // Apply pitch modifier since BPM changes with pitch
+        const effectiveBpm = deck.bpm * deck.pitch;
+        const beatDuration = 60 / effectiveBpm;
+        const loopDuration = beatDuration * beats;
+        deck.autoLoopStart = deck.audio.currentTime;
+        deck.autoLoopEnd = deck.autoLoopStart + loopDuration;
+      } else {
+        deck.autoLoopActive = false; // Cannot auto-loop without BPM
+      }
+    }
+    return deck.autoLoopActive;
   }
 }
